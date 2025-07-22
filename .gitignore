@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+**/results/
+**/notebooks/
+**/outputs/
+**/multirun/
+**/wandb/
+**/runs/
+**/cifar10/
+**/ptbxl/
+**/tiny_imagenet/
+*.egg-info
+helpers/dataset_statistics/dataset-stats-collector.html
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
