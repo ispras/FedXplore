@@ -1,0 +1,2 @@
+_target_: client_selectors.fedcbs.FedCBS
+lambda_: 10 # λ is the exploration factor to balance the trade-off between exploitation and exploration

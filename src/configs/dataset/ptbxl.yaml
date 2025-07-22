@@ -1,0 +1,21 @@
+_target_: federated_datasets.ptbxl_dataset.PTBXLDataset
+data_sources:
+  test_map_file: null
+  train_map_file: null
+dataset_cfg:
+  augmentation:
+    transforms: null
+
+  frequency: 500 # 500, 100
+  
+  # You may not be able to teach on all 12 leads
+  leads: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] 
+  
+  # You can merge several pathologies into one by merge_map
+  merge_map: {} 
+  pathology_names: [AFIB, PVC, CRBBB]
+  
+  task_type: scp_codes
+  norm_type: z_norm
+  validated_by_human: false
+mode: train

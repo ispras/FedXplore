@@ -1,0 +1,6 @@
+loss_name: "ce"
+config:
+  _target_: torch.nn.CrossEntropyLoss
+  ignore_index: -100
+  reduction: 'mean'
+  label_smoothing: 0.0

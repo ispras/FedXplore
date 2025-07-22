@@ -1,0 +1,4 @@
+_target_: federated_methods.simbant.simbant.SimBANT
+trust_test_samples: 200
+prob_temperature: 0.05
+similarity_type: 'cosine_targets'

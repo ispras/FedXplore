@@ -1,0 +1,6 @@
+_target_: federated_methods.autobant.autobant.AutoBANT
+start_point: uniform # "previous", "best"
+end_point: origin
+num_opt_epochs: 5
+mirror_gamma: 1
+ts_momentum: 0.05

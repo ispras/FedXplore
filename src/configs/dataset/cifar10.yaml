@@ -1,0 +1,5 @@
+_target_: federated_datasets.cifar10_dataset.Cifar10Dataset
+data_sources:
+  test_map_file: null
+  train_map_file: null
+mode: train

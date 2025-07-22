@@ -1,0 +1,4 @@
+_target_: federated_methods.central_clip.central_clip.CentralClip
+momentum_beta: 0.9
+tau_clip: 0.1
+clip_iters: 1

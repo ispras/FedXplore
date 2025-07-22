@@ -1,0 +1,3 @@
+_target_: client_selectors.delta.Delta
+alpha_1: 0.8
+alpha_2: 0.2

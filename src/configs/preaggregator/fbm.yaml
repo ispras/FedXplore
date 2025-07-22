@@ -1,0 +1,3 @@
+_target_: federated_methods.byzantine_base.preaggregator.fbm.FBM
+num_byzantines: 4
+server: ???

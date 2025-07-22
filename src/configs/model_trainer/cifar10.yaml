@@ -1,0 +1,1 @@
+_target_: model_trainers.cifar10_model_trainer.Cifar10ModelTrainer

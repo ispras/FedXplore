@@ -1,0 +1,4 @@
+_target_: attack_clients.ALIE
+percent_of_changed_grads: 1.0
+attack_type: 'random_grad' # random_grad, label_flip backdooring 
+percent_of_changed_labels: 0.7 # only for label_flip backdoor

@@ -1,0 +1,4 @@
+name: "dirichlet_multilabel"
+alpha: 0.1
+verbose: True
+min_sample_number: 20 # for highly heterogeneous cases, defines the minimum number of samples per client.

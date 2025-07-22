@@ -1,0 +1,19 @@
+_target_: utils.model_utils.resnet1d18
+block_type: BasicBlock1d
+layers: [2, 2, 2, 2]
+input_channels: 12
+base_filters: 64
+kernel_size: 3
+stride: 2
+num_classes: 1 
+dropout_prob: 0.0
+fix_feature_dim: True
+kernel_size_stem: null
+stride_stem: 2
+pooling_stem: True
+concat_pooling: True
+hidden_layers_head: null
+dropout_prob_head: 0.5
+act_head: relu
+bn_head: True
+bn_final_head: False

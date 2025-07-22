@@ -1,0 +1,2 @@
+_target_: federated_methods.fedavg.fedavg.FedAvg
+num_clients_subset: 20

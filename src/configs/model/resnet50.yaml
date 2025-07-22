@@ -1,0 +1,2 @@
+_target_: utils.model_utils.resnet50
+num_classes: 10

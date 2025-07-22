@@ -1,0 +1,4 @@
+_target_: federated_methods.byzantine_base.preaggregator.bucketing.Bucketing
+beta: 0.9
+s: 2
+server: ???

@@ -1,0 +1,11 @@
+_target_: vit_pytorch.ViT
+image_size: 64
+patch_size: 4
+num_classes: 200
+dim: 128
+depth: 6
+heads: 4
+mlp_dim: 512
+channels: 3
+dropout: 0.1
+emb_dropout: 0.1

@@ -1,0 +1,9 @@
+_target_: federated_methods.pfedme.pfedme.pFedMe
+strategy: base # base, sharded
+cluster_params: null
+ckpt_path: null
+server_test: False
+
+# pFedMe params:
+proximity: 0.2
+momentum: 0.95

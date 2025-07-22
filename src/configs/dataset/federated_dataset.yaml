@@ -1,0 +1,13 @@
+# You can use any distribution, set distribution=name (uniform, dirichlet, ...)
+# in your run command 
+
+_target_: federated_datasets.federated_dataset.FederatedDataset # Change path to your dataset class
+data_sources: 
+  # If you download dataset and create specific map files
+  # you need to set their path here
+  # Otherwise you need to code download function in your Dataset class
+  # and set `null` here
+  train_map_file: null # null or bullet list with paths
+  test_map_file: null # null or bullet list with paths
+
+mode: "train" # "train", "test" # The mode will be selected upon creation.

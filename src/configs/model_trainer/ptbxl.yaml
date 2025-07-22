@@ -1,0 +1,4 @@
+_target_: model_trainers.ptbxl_model_trainer.PTBXLModelTrainer
+
+# Sets the proportion of metrics by which the threshold is selected, it must sum to 1
+metrics_for_threshold: {"gmean": 0.8, "f1-score": 0.2}

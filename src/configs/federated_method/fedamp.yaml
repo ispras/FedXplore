@@ -1,0 +1,10 @@
+_target_: federated_methods.fedamp.fedamp.FedAMP
+strategy: base # base, sharded
+cluster_params: null
+ckpt_path: null
+server_test: False
+
+# FedAMP params:
+proximity: 0.2
+scaling: 0.5
+self_value: 0.15
