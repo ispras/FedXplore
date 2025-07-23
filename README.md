@@ -1,5 +1,5 @@
 
-# Federated Learning Framework
+# FedXplore - extensible framework for federated learning
 
 ## Table of contents
 0. [Running Experiments](docs/experiments.md) -- Run the command to get reproducibility
