@@ -13,7 +13,7 @@ class Zeno(ByzantineBase):
     def _init_server(self, cfg):
         super()._init_server(cfg)
         self.server = ZenoServer(cfg, self.trust_df, self.use_buffers, self.ro, self.b)
-        self.amount_clients = int(self.num_clients_subset * self.b)
+        self.zeno_amount_clients = int(self.num_clients_subset * (1 - self.b))
 
     def aggregate(self):
         self.make_pre_aggregation()
@@ -24,5 +24,5 @@ class Zeno(ByzantineBase):
                 for key, weights in self.server.client_gradients[rank].items():
                     aggregated_weights[key] = aggregated_weights[key] + weights.to(
                         self.server.device
-                    ) * (1 / self.amount_clients)
+                    ) * (1 / self.zeno_amount_clients)
         return aggregated_weights

@@ -12,7 +12,9 @@ class ZenoServer(ByzantineBaseServer):
         self.ro = ro
         self.b = b
         self.sds = [0 for _ in range(len(self.client_gradients))]
-        self.amount_clients = int(self.cfg.federated_params.client_subset_size * self.b)
+        self.zeno_amount_clients = int(
+            self.cfg.federated_params.client_subset_size * (1 - self.b)
+        )
 
     def find_sds(self):
         round_sds = [self.sds[rank] for rank in self.list_clients]
@@ -64,7 +66,7 @@ class ZenoServer(ByzantineBaseServer):
 
     def find_highest_sds(self):
         round_sds = self.find_sds()
-        threshold = sorted(round_sds, reverse=True)[self.amount_clients - 1]
+        threshold = sorted(round_sds, reverse=True)[self.zeno_amount_clients - 1]
         round_sds = [value if value >= threshold else 0 for value in round_sds]
         print(
             f"Chosen clients: {[rank for i, rank in enumerate(self.list_clients) if round_sds[i]]}"
