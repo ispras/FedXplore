@@ -31,6 +31,8 @@ python src/train.py \
   > fedavg_cifar.txt
 ```
 
+At the first run, downloading CIFAR-10 takes some time.
+
 `device_ids` controls the GPU number (if there are several GPUs on the machine). You can specify multiple ids, then the training will be evenly distributed across the specified devices.
 
 Additionally, `manager.batch_size` client processes will be created. To forcefully terminate the training, kill any of the processes.
@@ -41,7 +43,7 @@ Additionally, `manager.batch_size` client processes will be created. To forceful
 python src/train.py \
   training_params.batch_size=32 \
   federated_params.print_client_metrics=False \
-  train_dataset.alpha=0.1 \
+  distribution.alpha=0.1 \
   federated_params.amount_of_clients=100 \
   client_selector=fedcor \
   > fedavg_fedcor_cifar10_dirichlet_alpha0.1.txt
@@ -66,6 +68,8 @@ python src/train.py \
   federated_params.prop_attack_rounds=1.0 \
   > fltrust_ptbxl_label_flip_half_byzantines.txt
 ```
+
+At the first run, downloading PTB-XL takes some time.
 
 #### 🧑‍🤝‍🧑 [FedAMP](https://arxiv.org/abs/2007.03797) with 10 clusters on [CIFAR-10](https://www.cs.toronto.edu/~kriz/cifar.html) dataset
 
