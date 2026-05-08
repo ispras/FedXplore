@@ -4,3 +4,6 @@ config:
   ignore_index: -100
   reduction: 'mean'
   label_smoothing: 0.0
+  
+  init_pos_weight: False
+  pos_weight: null

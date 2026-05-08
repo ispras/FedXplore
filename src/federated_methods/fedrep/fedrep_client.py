@@ -32,7 +32,7 @@ class FedRepClient(PerClient):
             # Reinit head
             if ("linear" in k) and (not self.warmup):
                 linear_layer = nn.Linear(
-                    512 * self.model.block.expansion, self.df.num_classes
+                    512 * self.model.block.expansion, self.global_dataset.num_classes
                 )
 
                 with torch.no_grad():

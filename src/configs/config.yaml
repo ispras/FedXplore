@@ -1,13 +1,14 @@
 defaults:
     - model: resnet18
+    - logger: base
     - dataset@train_dataset: cifar10
     - dataset@test_dataset: cifar10
     - dataset@trust_dataset: null
-    - distribution: dirichlet
-    - model_trainer: cifar10
+    - distribution: uniform
+    - model_trainer: image
     - federated_method: fedavg
     - client_selector: uniform
-    - manager: client_selection
+    - manager: base_manager
     - losses@loss: ce
     - optimizer: adam
     - preaggregator: null
@@ -28,7 +29,7 @@ federated_params:
     communication_rounds: 200
     local_epochs: 1
     client_train_val_prop: 0.2
-    print_client_metrics: True
+    print_client_metrics: False
     server_saving_metrics: ["loss"] # "loss", "Specificity", "Sensitivity", "G-mean", "f1-score", "fbeta2-score", "ROC-AUC", "AP", "Precision (PPV)", "NPV"
     server_saving_agg: "uniform" # weighted
     clients_attack_types: "no_attack" # label_flip, sign_flip, random_grad, alie, ipm; Can be mixed with a list ['label_flip', 'sign_flip']

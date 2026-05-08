@@ -1,6 +1,7 @@
 from types import MethodType
 
 import numpy as np
+import pandas as pd
 from hydra.utils import instantiate
 
 from utils.data_utils import get_dataset_loader
@@ -38,31 +39,64 @@ class LabelFlipClient(AttackClient):
             client_instance.train_dataset.data,
             client_instance.rank,
         )
-        client_instance.train_loader = get_dataset_loader(
-            client_instance.train_dataset, client_instance.cfg, drop_last=False
-        )
 
         client_instance.valid_dataset.data = self._change_client_labels(
             client_instance.valid_dataset.data,
             client_instance.rank,
         )
+
+        """
+        TODO issue205: Sync ECG dataset targets after label corruption.
+        If the task uses an ECG dataset, update the internal
+        ecg_dataset.target array to match the modified
+        train_dataset.data.target and valid_dataset.data.target. The
+        project stores targets both in the dataframe and inside the
+        ecg_dataset object; the ECG trainer reads targets from
+        ecg_dataset, so failing to sync them causes training to use
+        stale labels.
+        """
+        if hasattr(client_instance.train_dataset, "ecg_dataset"):
+            client_instance.train_dataset.ecg_dataset.target = (
+                client_instance.train_dataset.data.target.values
+            )
+
+        if hasattr(client_instance.valid_dataset, "ecg_dataset"):
+            client_instance.valid_dataset.ecg_dataset.target = (
+                client_instance.valid_dataset.data.target.values
+            )
+
+        client_instance.train_loader = get_dataset_loader(
+            client_instance.train_dataset, client_instance.cfg, drop_last=False
+        )
+
         client_instance.valid_loader = get_dataset_loader(
             client_instance.valid_dataset, client_instance.cfg, drop_last=False
         )
         return client_instance
 
     def _change_client_labels(self, train_df, rank):
-        # Seed randomization in accordance with client rank. See https://github.com/numpy/numpy/issues/9248
-        rng = np.random.RandomState(rank)
-        labels = np.array(train_df["target"].tolist())
+        rng = np.random.RandomState(int(rank))
+        labels = np.asarray(train_df["target"].tolist(), dtype=np.int64)
+
         attacked_labels = rng.choice(
             np.prod(labels.shape),
             int(self.percent_of_changed_labels * np.prod(labels.shape)),
             replace=False,
         )
-        corrupted_labels = rng.randint(0, 10, size=attacked_labels.size)
-        labels.flat[attacked_labels] = corrupted_labels
-        train_df.loc[train_df.index, "target"] = np.abs(labels)
+
+        if labels.ndim > 1:
+            # multilabel case
+            labels.flat[attacked_labels] -= 1
+            labels = np.abs(labels)
+            train_df["target"] = pd.Series(
+                [row.tolist() for row in labels], index=train_df.index, dtype=object
+            )
+        else:
+            # otherwise we assume multiclass
+            num_classes = np.unique(labels).size
+            corrupted_labels = rng.randint(0, num_classes, size=attacked_labels.size)
+            labels.flat[attacked_labels] = corrupted_labels.flat
+            train_df["target"] = pd.Series(labels.tolist(), index=train_df.index)
 
         return train_df
 
@@ -87,12 +121,18 @@ class AttackGradClient(AttackClient):
             AttackGradClient.get_grad, client_instance
         )
         client_instance.grad_attack = MethodType(self.grad_attack(), client_instance)
+        client_instance.load_corrupted_model = MethodType(
+            self.load_corrupted_model(), client_instance
+        )
         return client_instance
 
     def get_grad(self):
+        print(f"Сейчас атакует клиент {self.rank}", flush=True)
         rng = np.random.RandomState(self.rank)
         self.model.eval()
-        random_model = instantiate(self.cfg.model, num_classes=self.train_dataset.num_classes)
+        random_model = instantiate(
+            self.cfg.model, num_classes=self.train_dataset.num_classes
+        )
         self.random_weights = random_model.state_dict()
         for name, param in self.model.named_parameters():
             param_final_grad = param.data - self.server_model_state[name]
@@ -109,7 +149,15 @@ class AttackGradClient(AttackClient):
         for name, buffer in self.model.named_buffers():
             self.grad[name] = buffer.to("cpu") - self.server_model_state[name].to("cpu")
 
+        # For PoW CS we need to eval model after training,
+        # so we load corrupted model for this
+        if "pow" in self.cfg.client_selector._target_:
+            self.load_corrupted_model()
+
     def grad_attack(self):
+        raise NotImplementedError("Subclasses must implement this method")
+
+    def load_corrupted_model(self):
         raise NotImplementedError("Subclasses must implement this method")
 
 
@@ -125,6 +173,17 @@ class SignFlipClient(AttackGradClient):
         # This method returns a closure that dynamically adjusts the gradients for custom method
         return grad_flip
 
+    def load_corrupted_model(self):
+        def load_sign_flip_model(self):
+            self.model.eval()
+            loading_weights = self.model.state_dict()
+            for k, v in loading_weights.items():
+                loading_weights[k] = self.server_model_state[k].to("cpu") - self.grad[k]
+
+            self.model.load_state_dict(loading_weights)
+
+        return load_sign_flip_model
+
 
 class RandomGradClient(AttackGradClient):
     def grad_attack(self):
@@ -138,6 +197,17 @@ class RandomGradClient(AttackGradClient):
         # This method returns a closure that dynamically adjusts the gradients for custom method
         return grad_random
 
+    def load_corrupted_model(self):
+        def load_random_grad_model(self):
+            self.model.eval()
+            loading_weights = self.model.state_dict()
+            for k, v in loading_weights.items():
+                loading_weights[k] = self.server_model_state[k].to("cpu") + self.grad[k]
+
+            self.model.load_state_dict(loading_weights)
+
+        return load_random_grad_model
+
 
 class IPM(AttackClient):
     """IPM (https://dprg.cs.uiuc.edu/data/files/2019/uai2019_byz.pdf)
@@ -150,6 +220,12 @@ class IPM(AttackClient):
 
     def apply_attack(self, client_instance):
         return client_instance
+
+    def load_corrupted_model(self):
+        def load_ipm_model(self):
+            pass
+
+        return load_ipm_model
 
 
 class ALIE(AttackClient):
@@ -204,12 +280,18 @@ class ALIE(AttackClient):
             client_instance.train_loader = get_dataset_loader(
                 client_instance.train_df, client_instance.cfg, drop_last=False
             )
+
+        client_instance.load_corrupted_model = MethodType(
+            self.load_corrupted_model(), client_instance
+        )
         return client_instance
 
     def get_random_grad(self):
         rng = np.random.RandomState(self.rank)
         self.model.eval()
-        random_model = instantiate(self.cfg.model, num_classes=self.train_dataset.num_classes)
+        random_model = instantiate(
+            self.cfg.model, num_classes=self.train_dataset.num_classes
+        )
         self.random_weights = random_model.state_dict()
         for name, param in self.model.named_parameters():
             param_final_grad = param.data - self.server_model_state[name]
@@ -245,6 +327,11 @@ class ALIE(AttackClient):
         else:
             self.get_true_grad()
 
+        # For PoW CS we need to eval model after training,
+        # so we load corrupted model for this
+        if "pow" in self.cfg.client_selector._target_:
+            self.load_corrupted_model()
+
     def change_client_labels(self, train_df, data_name, rank):
         # Seed randomization in accordance with client rank. See https://github.com/numpy/numpy/issues/9248
         rng = np.random.RandomState(rank)
@@ -263,3 +350,14 @@ class ALIE(AttackClient):
                 lambda x: [x]
             )
         return train_df
+
+    def load_corrupted_model(self):
+        def load_random_grad_model(self):
+            self.model.eval()
+            loading_weights = self.model.state_dict()
+            for k, v in loading_weights.items():
+                loading_weights[k] = self.server_model_state[k].to("cpu") + self.grad[k]
+
+            self.model.load_state_dict(loading_weights)
+
+        return load_random_grad_model

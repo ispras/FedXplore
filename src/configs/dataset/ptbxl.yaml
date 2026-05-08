@@ -1,7 +1,8 @@
 _target_: federated_datasets.ptbxl_dataset.PTBXLDataset
 data_sources:
-  test_map_file: null
-  train_map_file: null
+  test_map_file: ["/home/ecg_data/physionet_data/ptbxl_data_1_0_3/test_map_ptbxl.csv"]
+  train_map_file: ["/home/ecg_data/physionet_data/ptbxl_data_1_0_3/train_split_map_ptbxl.csv",
+                   "/home/ecg_data/physionet_data/ptbxl_data_1_0_3/valid_split_map_ptbxl.csv"]
 dataset_cfg:
   augmentation:
     transforms: null
@@ -18,4 +19,6 @@ dataset_cfg:
   task_type: scp_codes
   norm_type: z_norm
   validated_by_human: false
+  use_metadata: false
+base_path: 'data'
 mode: train

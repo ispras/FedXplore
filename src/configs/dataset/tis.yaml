@@ -1,0 +1,102 @@
+_target_: federated_datasets.tis_dataset.TISDataset
+data_sources:
+  train_map_file: [ "/data/ecg_data/tis_data/tatarstan_data/2020/january/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2020/february/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2020/april_may_june/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2020/july/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2020/august/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2020/september/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2020/october/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2020/december/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/january/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/march/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/may/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/june/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/july/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/august/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/september/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/october/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/december/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/march/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/may/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/june/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2023/february/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/december/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/august/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/november/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/september/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/october/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/february/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/november/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2021/april/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/january/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/february/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/july/ecg_map_file.csv",
+
+                  ]
+  test_map_file: [
+                    "/data/ecg_data/tis_data/tatarstan_data/2023/march/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2023/january/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2020/march/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2022/april/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2019/december/ecg_map_file.csv",
+                    "/data/ecg_data/tis_data/tatarstan_data/2020/november/ecg_map_file.csv"
+                 ]
+  path_to_zarr: ["/data/ecg_data/tis_data/tatarstan_data/ecg_dataset.zarr"]
+  filter_map_files: [ "/data/ecg_data/tis_data/tatarstan_data/new_artefact_ecg.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2021/july/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2021/december/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/january/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/february/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/march/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/april/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/may/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/june/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/july/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/august/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/september/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/october/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/november/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2022/december/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2023/january/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2023/february/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/2023/march/artefact_map_file.csv",
+                      "/data/ecg_data/tis_data/tatarstan_data/duplicates_map_file_keep_first.csv",
+                  ]
+dataset_cfg:
+  augmentation:
+    transforms: null  
+      # - config:
+      #     _target_: ecglib.preprocessing.preprocess.BaselineWanderRemoval
+      #     leads: [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+      #     wavelet: "db4"
+      # - config:
+      #     _target_: ecglib.preprocessing.preprocess.WaveletTransform
+      #     leads: [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+      #     wt_type: "DWT"
+      #     wavelet: "db4"
+      #     level: 3
+      #     threshold: 2
+      #     low: 1e6
+    augm_prob: 1.0
+
+
+
+  data_type: "zarr"
+  observed_frequencies: [500, 1000]
+  resampled_frequency: 500
+  age_range: [18, 100] # Possible age of the patients used during training or validation
+  ecg_cut_range: [0, 0] # Number of seconds cut from ECG in the beginning and in the end of the record
+  observed_ecg_length: [9, 10]
+  resampled_ecg_length: 10
+  leads: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] # You may not be able to teach on all 12 leads
+  use_metadata: false
+  
+  # You can merge several pathologies into one by merge_map
+  merge_map: {} 
+  pathology_names: [AFIB, PVC, CRBBB]
+  
+  norm_type: z_norm
+
+base_path: 'data'
+mode: train

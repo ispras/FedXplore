@@ -10,10 +10,10 @@ from utils.dataset_utils import set_data_configs, get_target_dir, save_map_files
 
 
 class Cifar10Dataset(FederatedDataset):
-    def __init__(self, cfg, mode, data_sources, **kwargs):
+    def __init__(self, cfg, mode, data_sources, base_path, **kwargs):
         # Setted transform for CIFAR-10 dataset
         self.transform = self.set_up_transform(mode)
-        super().__init__(cfg, mode, data_sources)
+        super().__init__(cfg, mode, data_sources, base_path)
 
     def set_up_transform(self, mode):
         image_size = 32

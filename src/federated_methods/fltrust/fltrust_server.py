@@ -22,7 +22,8 @@ class FLTrustServer(ByzantineBaseServer):
         self.criterion = get_loss(
             loss_cfg=self.cfg.loss,
             device=self.device,
-            df=self.trust_df,
+            df=self.trust_df.data,
+            num_classes=self.cfg.training_params.num_classes,
         )
 
     def get_loss_value(self, outputs, targets):

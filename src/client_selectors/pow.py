@@ -9,7 +9,7 @@ class Pow(BaseSelector):
         super().__init__(cfg)
         self.candidate_set_size = candidate_set_size
 
-    def select_clients_to_train(self, num_clients_subset, server_sampling=False):
+    def select_clients_to_train(self, num_clients_subset):
         if num_clients_subset == self.amount_of_clients:
             return list(range(self.cfg.federated_params.amount_of_clients))
 
@@ -24,28 +24,23 @@ class Pow(BaseSelector):
         )
         candidate_clients_list = candidate_clients_list.tolist()
 
-        if not server_sampling:
-            print(f"Current clients losses: {self.clients_losses}", flush=True)
-            print(f"Current candidate clients: {candidate_clients_list}", flush=True)
+        print(f"Current clients losses: {self.clients_losses}", flush=True)
+        print(f"Current candidate clients: {candidate_clients_list}", flush=True)
 
         # Sort the selected candidates by their loss values
         candidate_clients_list.sort(
             key=lambda client_rank: self.clients_losses[client_rank], reverse=True
         )
 
-        if not server_sampling:
-            print(
-                f"Sorted candidate clients: {sorted(candidate_clients_list)}",
-                flush=True,
-            )
-            for idx, cl in enumerate(candidate_clients_list):
-                print(f"{idx} : Client{cl} : {self.clients_losses[cl]}", flush=True)
+        print(
+            f"Sorted candidate clients: {sorted(candidate_clients_list)}",
+            flush=True,
+        )
+        for idx, cl in enumerate(candidate_clients_list):
+            print(f"{idx} : Client{cl} : {self.clients_losses[cl]}", flush=True)
 
         # Select the top `amount_of_clients` clients from the sorted list
         selected_clients = candidate_clients_list[:num_clients_subset]
-
-        if not server_sampling:
-            print(f"Selected clients: {selected_clients}", flush=True)
 
         return selected_clients
 
@@ -74,11 +69,10 @@ class Pow(BaseSelector):
         trainer.client_cls.get_communication_content = Pow.get_communication_content
 
         # Setup initial probabilities
-        trainer.server.set_probs_to_choise_client = MethodType(
-            Pow.set_probs_to_choise_client, trainer.server
+        trainer.set_probs_to_choise_client = MethodType(
+            Pow.set_probs_to_choise_client, trainer
         )
-        trainer.server.df = trainer.df
-        trainer.server.clients_probs = trainer.server.set_probs_to_choise_client()
+        trainer.server.clients_probs = trainer.set_probs_to_choise_client()
 
         # Change client selection function
         trainer.server.select_clients_to_train = MethodType(
@@ -88,7 +82,7 @@ class Pow(BaseSelector):
 
     def set_probs_to_choise_client(self):
         clients_df_len = [
-            len(self.df.data[self.df.data["client"] == i])
+            len(self.train_dataset.data[self.train_dataset.data["client"] == i])
             for i in range(self.amount_of_clients)
         ]
         clients_probs = [

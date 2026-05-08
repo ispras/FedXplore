@@ -1,1 +1,3 @@
-name: "uniform"
+_target_: distributions.uniform.UniformDistribution
+verbose: True
+min_sample_number: 20 # for highly heterogeneous cases, defines the minimum number of samples per client.

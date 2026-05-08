@@ -10,7 +10,7 @@ class UniformSelector(BaseSelector):
 
     def select_clients_to_train(self, subsample_amount):
         # Just a random sample of clients by default
-        return rand.sample([_ for _ in range(self.amount_of_clients)], subsample_amount)
+        return rand.sample(list(range(self.amount_of_clients)), subsample_amount)
 
     def change_functionality(self, trainer):
         trainer.server.select_clients_to_train = MethodType(

@@ -17,7 +17,7 @@ class Recess(ByzantineBase):
         self.baseline_decreased_score = baseline_decreased_score
         self.init_trust_score = init_trust_score
 
-    def count_trust_scores(self):
+    def calculate_aggregation_weights(self):
         self.server.calculate_trust_scores()
         return self.server.trust_scores
 
@@ -56,10 +56,10 @@ class Recess(ByzantineBase):
         self.manager.create_clients(
             self.client_args, self.client_kwargs, self.client_attack_map
         )
-        self.clients_loader = self.manager.batches
         self.server.global_model = instantiate(
-            self.cfg.model, num_classes=self.df.num_classes
+            self.cfg.model, num_classes=self.train_dataset.num_classes
         )
+        self.server.criterion = self.server.criterion.to(self.server.device)
 
         for cur_round in range(self.rounds):
             print(f"\nRound number: {cur_round}")
@@ -105,7 +105,11 @@ class Recess(ByzantineBase):
             aggregated_weights = self.aggregate()
             self.server.global_model.load_state_dict(aggregated_weights)
 
-            print(f"Round time: {time.time() - begin_round_time}", flush=True)
+            self.round_time = time.time() - begin_round_time
+            print(f"Round time: {self.round_time}", flush=True)
+            self.log_round()
+            self.cleanup()
 
         print("Shutdown clients, federated learning end", flush=True)
+        self.logger.end_logging()
         self.manager.stop_train()

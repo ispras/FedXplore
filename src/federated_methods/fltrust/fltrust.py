@@ -8,11 +8,15 @@ from hydra.utils import instantiate
 
 
 class FLTrust(ByzantineBase):
+    def __init__(self, use_buffers):
+        super().__init__()
+        self.use_buffers = use_buffers
+
     def _init_server(self, cfg):
         super()._init_server(cfg)
         self.server = FLTrustServer(cfg, self.trust_df)
 
-    def count_trust_scores(self):
+    def calculate_aggregation_weights(self):
         self.server.fltrust_train()
         trust_scores = self.calculate_trust_scores()
         self.normalize_magnitudes()
@@ -20,8 +24,13 @@ class FLTrust(ByzantineBase):
 
     def calculate_trust_scores(self):
         self.client_directions = []
+        needed_state = (
+            self.server.server_grad.keys()
+            if self.use_buffers
+            else [name for name, _ in self.server.global_model.named_parameters()]
+        )
         self.server_direction = torch.cat(
-            [x.flatten() for x in list(self.server.server_grad.values())]
+            [self.server.server_grad[key].flatten() for key in needed_state]
         )
         trust_scores = []
 
@@ -29,8 +38,8 @@ class FLTrust(ByzantineBase):
             self.client_directions.append(
                 torch.cat(
                     [
-                        self.server.client_gradients[rank][k].flatten()
-                        for k in list(self.server.server_grad.keys())
+                        self.server.client_gradients[rank][key].flatten()
+                        for key in needed_state
                     ]
                 )
             )
@@ -55,7 +64,8 @@ class FLTrust(ByzantineBase):
             self.server.client_gradients[rank] = normalized_client_gradients
 
     def client_trust_score(self, server_direction, client_direction):
-        return relu(
-            torch.dot(server_direction, client_direction)
-            / (torch.norm(server_direction) * torch.norm(client_direction))
+        cosine_similarity = torch.dot(server_direction, client_direction) / (
+            torch.norm(server_direction) * torch.norm(client_direction)
         )
+        relu_score = relu(cosine_similarity)
+        return relu_score

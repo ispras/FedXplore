@@ -1,5 +1,6 @@
 _target_: federated_datasets.cifar10_dataset.Cifar10Dataset
 data_sources:
-  test_map_file: null
-  train_map_file: null
+  train_map_file: ["/home/image_data/orig_cifar/train_map_file.csv"]
+  test_map_file: ["/home/image_data/orig_cifar/test_map_file.csv"]
+base_path: 'data'
 mode: train

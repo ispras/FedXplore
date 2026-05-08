@@ -1,22 +1,18 @@
 from hydra.utils import instantiate
 
-from ..base.base import Base
+from ..uniform_fedavg.uniform_fedavg import UniformFedAvg
 from .byzantine_server import ByzantineBaseServer
 
 
-class ByzantineBase(Base):
+class ByzantineBase(UniformFedAvg):
     """Abstract class for Byzantine based methods.
     It overrides `aggregate` method:
     1. Performs pre-aggregation, if specified;
     2. Calculate trust scores for clients (default uniform);
-    3. Modifies client updates for further processing.
-
-    x^{t+1} = x^t + Σ_i⋹S(w_i*Δ_i^{t}) => Δ_i^{t} --> Δ_i^{t} * w_i * |S| =>
-    = > x^{t+1} = x^t + 1/|S| * Σ_i^N (Δ_i^{t})
     """
 
-    def _init_federated(self, cfg, df):
-        super()._init_federated(cfg, df)
+    def _init_federated(self, cfg):
+        super()._init_federated(cfg)
         self.preaggregator = None
         if cfg.get("preaggregator") is not None:
             self.preaggregator = instantiate(cfg.preaggregator, server=self.server)
@@ -29,18 +25,18 @@ class ByzantineBase(Base):
             )
         self.server = ByzantineBaseServer(cfg, self.trust_df)
 
-    def count_trust_scores(self):
-        # By default each client has equal trust_scores
-        return [1 / self.num_clients_subset for _ in range(self.num_clients_subset)]
+    # def count_trust_scores(self):
+    #     # By default each client has equal trust_scores
+    #     return [1 / self.num_clients_subset for _ in range(self.num_clients_subset)]
 
-    def _modify_gradients(self, trust_scores):
-        for i, rank in enumerate(self.list_clients):
-            print(f"Client {rank} trust score: {trust_scores[i]}")
-            modified_client_model_weights = {
-                k: v * trust_scores[i] * self.num_clients_subset
-                for k, v in self.server.client_gradients[rank].items()
-            }
-            self.server.client_gradients[rank] = modified_client_model_weights
+    # def _modify_gradients(self, trust_scores):
+    #     for i, rank in enumerate(self.list_clients):
+    #         print(f"Client {rank} trust score: {trust_scores[i]}")
+    #         modified_client_model_weights = {
+    #             k: v * trust_scores[i] * self.num_clients_subset
+    #             for k, v in self.server.client_gradients[rank].items()
+    #         }
+    #         self.server.client_gradients[rank] = modified_client_model_weights
 
     def make_pre_aggregation(self):
         if self.preaggregator is not None:
@@ -52,6 +48,9 @@ class ByzantineBase(Base):
 
     def aggregate(self):
         self.make_pre_aggregation()
-        trust_scores = self.count_trust_scores()
-        self._modify_gradients(trust_scores)
-        return super().aggregate()
+        aggregated_weights = super().aggregate()
+        print("\nClient trust scores:")
+        for rank, score in enumerate(self.aggr_weights):
+            print(f"\tClient {rank}: {score:.4f}")
+        print("\n\n")
+        return aggregated_weights

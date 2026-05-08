@@ -1,6 +1,5 @@
 import os
 from PIL import Image
-from omegaconf import open_dict
 import torchvision.transforms as transforms
 import pandas as pd
 from datasets import load_dataset
@@ -9,10 +8,10 @@ from utils.dataset_utils import get_target_dir, save_map_files, set_data_configs
 
 
 class TinyImageNet(FederatedDataset):
-    def __init__(self, cfg, mode, data_sources, **kwargs):
+    def __init__(self, cfg, mode, data_sources, base_path, **kwargs):
         # Setted transform for TinyImageNet dataset
         self.transform = self.set_up_transform(mode)
-        super().__init__(cfg, mode, data_sources, **kwargs)
+        super().__init__(cfg, mode, data_sources, base_path)
 
     def set_up_transform(self, mode):
         transform = transforms.Compose(

@@ -1,0 +1,2 @@
+_target_: manager.batch_generator.data_sorted.DataSortedBatchGenerator
+batch_size: 10

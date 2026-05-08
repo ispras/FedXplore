@@ -8,13 +8,38 @@ from ecglib.data.datasets import EcgDataset
 from ecglib.preprocessing.composition import Compose
 
 from .federated_dataset import FederatedDataset
-from utils.data_utils import create_dirichlet_multilabel_df
 from utils.dataset_utils import get_target_dir, set_data_configs, save_map_files
 
 
 class PTBXLDataset(FederatedDataset):
-    def __init__(self, cfg, mode, data_sources, dataset_cfg):
+    def __init__(
+        self,
+        cfg,
+        mode,
+        data_sources,
+        base_path,
+        dataset_cfg,
+        **kwargs,
+    ):
         self.dataset_cfg = dataset_cfg
+
+        distribution_name = cfg.distribution._target_.split(".")[-1]
+        supported_distributions = [
+            "DirichletMultilabelDistribution",
+            "UniformDistribution",
+        ]
+        assert (
+            distribution_name in supported_distributions
+        ), f"For ECG multilabel scenario only {supported_distributions} are allowed. You provided: {distribution_name}"
+
+        assert (
+            not self.dataset_cfg.use_metadata
+        ), f"At the current moment, we don't take metadata into account. You set self.dataset_cfg.use_metadata={self.dataset_cfg.use_metadata}"
+
+        assert (
+            cfg.loss.loss_name == "bce"
+        ), f"ECG task supports only with `BCE` loss. You set {cfg.loss.loss_name}"
+
         # if the current dataset is the same as the train dataset,
         # then we need to copy the data configs.
         # This is necessary to avoid setting the same parameters in all datasets.
@@ -24,7 +49,17 @@ class PTBXLDataset(FederatedDataset):
         ):
             self.dataset_cfg = cfg.train_dataset.dataset_cfg
 
-        super().__init__(cfg, mode, data_sources)
+        # PRIVATE part of code due to server shared paths
+        self.shared_path = (
+            "ecg_data/physionet_data/ptbxl_data_1_0_3"
+            in data_sources[f"train_map_file"][0]
+        )
+        if self.shared_path and self.dataset_cfg.frequency == 100:
+            assert (
+                "ptbxl_data_sf100" in data_sources[f"{mode}_map_file"][0]
+            ), f"With server shared paths sample frequency 100 placed in `ecg_data/physionet_data/ptbxl_data_sf100/`, you provided: {data_sources[f'{mode}_map_file'][0]}"
+
+        super().__init__(cfg, mode, data_sources, base_path)
         if self.mode != "train":
             self.init_ecg_dataset()
 
@@ -38,6 +73,11 @@ class PTBXLDataset(FederatedDataset):
         # +train_dataset.download_path // +test_dataset.download_path to run command
         # By default, the root folder of the project will be used
         target_dir = get_target_dir(self.cfg, default_dir="ptbxl")
+
+        # 0. Create dirs
+        zip_dir = f"{target_dir}_zip"
+        os.makedirs(zip_dir, exist_ok=True)
+        os.makedirs(target_dir, exist_ok=True)
 
         # 1. Download dataset
         ptbxl_df = load_ptb_xl(
@@ -61,6 +101,9 @@ class PTBXLDataset(FederatedDataset):
         set_data_configs(self.target_dir, config_names=["ptbxl.yaml"])
 
     def preprocessing(self):
+        if self.loading_mode == "trust":
+            self.data["target"] = self.data["target"].apply(ast.literal_eval)
+            return
         # 1. Update df according to frequency
         self.data["frequency"] = self.dataset_cfg.frequency
         if self.dataset_cfg.frequency != 500:
@@ -79,13 +122,25 @@ class PTBXLDataset(FederatedDataset):
         # 2. Remove NaN labels
         self.data = self.data[self.data[self.dataset_cfg.task_type].notna()]
         # Remove artefact file
-        self.data = self.data[self.data["filename_lr"] != "records100/12000/12722_lr"]
+        suffix = "lr" if self.dataset_cfg.frequency == 100 else "hr"
+        # PRIVATE part of code
+        if self.shared_path:
+            self.data = self.data[self.data["file_name"] != f"12000_12722_{suffix}.npz"]
+        else:
+            self.data = self.data[
+                self.data[f"filename_{suffix}"] != f"records100/12000/12722_{suffix}"
+            ]
 
         # 3. Use only trusted labels
         if self.dataset_cfg.validated_by_human:
             self.data = self.data[self.data["validated_by_human"]]
 
-        # 4. Form target labels
+        # 4. if metadata is not required than we delete it because ecglib can handle its absence
+        if not self.dataset_cfg.use_metadata:
+            self.data = self.data.drop(columns=["ecg_metadata"])
+            self.data = self.data.drop(columns=["patient_metadata"])
+
+        # 5. Form target labels
         self.data.reset_index(drop=True, inplace=False)
         one_hot = make_onehot(
             self.data, self.dataset_cfg.task_type, self.dataset_cfg.pathology_names
@@ -95,30 +150,13 @@ class PTBXLDataset(FederatedDataset):
         self.data["target"] = one_hot.values.tolist()
 
     def split_to_clients(self):
-        if self.distribution.name == "dirichlet_multilabel":
-            self.data = create_dirichlet_multilabel_df(
-                self.data,
-                self.cfg.federated_params.amount_of_clients,
-                self.distribution.alpha,
-                self.distribution.verbose,
-                self.distribution.min_sample_number,
-                self.cfg.random_state,
-                self.dataset_cfg.pathology_names,
-            )
-        else:
-            # HARDCODE
-            # If not Dirichlet, we gonna do uniform distribution
-            # But with Dirichlet distribution with alpha=1000
-
-            self.data = create_dirichlet_multilabel_df(
-                self.data,
-                self.cfg.federated_params.amount_of_clients,
-                alpha=1000,
-                verbose=True,
-                min_sample_number=20,
-                seed=self.cfg.random_state,
-                pathology_names=self.dataset_cfg.pathology_names,
-            )
+        print(f"Used distribution is: {self.distribution.__class__.__name__}")
+        self.data = self.distribution.split_to_clients(
+            self.data,
+            self.cfg.federated_params.amount_of_clients,
+            self.cfg.random_state,
+            self.dataset_cfg.pathology_names,
+        )
 
     def get_augmentation(self):
         augmentation_transform = self.dataset_cfg.augmentation.transforms
@@ -139,16 +177,19 @@ class PTBXLDataset(FederatedDataset):
             target=self.data.target.values,
             frequency=self.dataset_cfg.frequency,
             leads=list(self.dataset_cfg.leads),
+            data_type="npz",
             norm_type=self.dataset_cfg.norm_type,
             classes=self.num_classes,
             augmentation=self.get_augmentation(),
         )
 
-    def to_client_side(self, rank):
-        self.rank = rank
-        self.data = self.orig_data[self.orig_data["client"] == rank]
+    def dataset_split(self, train_val_prop):
+        valid_dataset = super().dataset_split(train_val_prop)
+        # init ecg dataset for valid part
+        valid_dataset.init_ecg_dataset()
+        # init ecg dataset for train part
         self.init_ecg_dataset()
-        return self
+        return valid_dataset
 
     def __getitem__(self, index):
         return self.ecg_dataset.__getitem__(index)

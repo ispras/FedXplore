@@ -208,7 +208,7 @@ def apply_synchronized_attack(
             # If we have not selected any byzant client in the current round,
             # then the attack is not applied
             return
-        
+
         # set up true mean gradients
         byzantine_grad = {
             k: torch.stack([client_gradients[i][k] for i in true_clients]).mean(0)

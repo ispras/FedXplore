@@ -1,4 +1,4 @@
 _target_: federated_methods.zeno.zeno.Zeno
 ro: 0.0005
-b: 0.3
+b: 0.2
 use_buffers: False

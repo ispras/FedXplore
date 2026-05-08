@@ -1,0 +1,5 @@
+defaults:
+    - batch_generator: sequential
+
+_target_: manager.manager.Manager
+_recursive_: false

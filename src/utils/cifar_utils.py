@@ -1,5 +1,4 @@
 import os
-import yaml
 import pickle
 import tarfile
 import requests
@@ -73,44 +72,3 @@ def process_cifar10(base_dir="cifar10"):
                 )
 
     return pd.DataFrame(all_data)
-
-
-def set_data_configs(target_path):
-    print("Setting paths to .yaml files...\n")
-    # HARDCODE paths
-    config_dir = "src/configs/dataset/"
-    if not os.path.isdir(config_dir):
-        print(
-            f"Directory {config_dir} not found. Set paths inside .yaml configs manually"
-        )
-        return
-
-    config_names = ["cifar10.yaml"]
-
-    if not os.path.isabs(target_path):
-        curent_run_path = os.getcwd()
-        target_path = os.path.join(curent_run_path, target_path)
-
-    for filename in os.listdir(config_dir):
-        if filename not in config_names:
-            continue
-
-        filepath = os.path.join(config_dir, filename)
-        with open(filepath, "r") as f:
-            data = yaml.safe_load(f)
-
-        data_sources = data.get("data_sources", {})
-
-        if "test_map_file" in data_sources:
-            test_map_path = [os.path.join(target_path, "images", "test_map_file.csv")]
-            data_sources["test_map_file"] = test_map_path
-
-        if "train_map_file" in data_sources:
-            train_map_name = "train_map_file.csv"
-            train_map_path = [os.path.join(target_path, "images", train_map_name)]
-            data_sources["train_map_file"] = train_map_path
-
-        data["data_sources"] = data_sources
-
-        with open(filepath, "w") as f:
-            yaml.dump(data, f, default_flow_style=False)

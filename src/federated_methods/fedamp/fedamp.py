@@ -10,16 +10,9 @@ from ..fedamp.fedamp_client import FedAMPClient
 
 class FedAMP(PerFedAvg):
     def __init__(
-        self,
-        strategy,
-        cluster_params,
-        ckpt_path,
-        server_test,
-        proximity,
-        scaling,
-        self_value,
+        self, strategy, ckpt_path, server_test, proximity, scaling, self_value
     ):
-        super().__init__(strategy, cluster_params, ckpt_path, server_test)
+        super().__init__(strategy, ckpt_path, server_test)
         self.proximity = proximity
         self.scaling = scaling
         self.self_value = self_value

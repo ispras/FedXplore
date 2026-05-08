@@ -1,10 +1,10 @@
 from collections import OrderedDict
 
-from ..base.base_server import BaseServer
+from ..fedavg.fedavg_server import FedAvgServer
 from hydra.utils import instantiate
 
 
-class Safeguard_server(BaseServer):
+class Safeguard_server(FedAvgServer):
     def __init__(self, cfg):
         super().__init__(cfg)
         self.good_clients = list(range(cfg.federated_params.amount_of_clients))

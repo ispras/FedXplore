@@ -1,5 +1,7 @@
 import os
 import yaml
+import zarr
+from ecglib.data.datasets import EcgDataset
 
 
 def get_target_dir(cfg, default_dir="cifar10"):
@@ -55,3 +57,80 @@ def set_data_configs(target_path, config_names=["cifar10.yaml"]):
 
         with open(filepath, "w") as f:
             yaml.dump(data, f, default_flow_style=False)
+
+
+def get_all_usernames():
+    # Return all users in system
+    with open("/etc/passwd", "r") as f:
+        users = [line.split(":")[0] for line in f.readlines()]
+    return users
+
+
+def update_data_sources(base_path, data_sources):
+    usernames = get_all_usernames()
+    
+    # We go through all data_sources and correct them in each path
+    # (including path_to_zarr, filetered_map_files, etc.)
+    for data_sources_type in data_sources.keys():
+        for i in range(len(data_sources[data_sources_type])):
+            if any(
+                user in data_sources[data_sources_type][i].split("/")
+                for user in usernames
+            ):
+                # if it leads to a user folder, then we don't update anything
+                continue
+            
+            path_without_base = "/".join(
+                data_sources[data_sources_type][i].split("/")[2:]
+            )
+            fpath = os.path.join("/", base_path, path_without_base)
+            data_sources[data_sources_type][i] = fpath
+
+    return data_sources
+
+
+class ZarrEcgDataset(EcgDataset):
+    """
+    Custom ecglib.data.dataset.EcgDataset class to support zarr tis format
+
+    1. Load zarr.Directory store
+    2. Overwrite `read_ecg_record` to zarr.load
+    """
+
+    def __init__(
+        self,
+        ecg_data,
+        target,
+        frequency=500,
+        leads=...,
+        data_type="wfdb",
+        ecg_length=10,
+        cut_range=...,
+        pad_mode="constant",
+        norm_type="z_norm",
+        classes=2,
+        augmentation=None,
+        path_to_zarr=None,
+    ):
+        super().__init__(
+            ecg_data,
+            target,
+            frequency,
+            leads,
+            data_type,
+            ecg_length,
+            cut_range,
+            pad_mode,
+            norm_type,
+            classes,
+            augmentation,
+        )
+        assert (
+            self.data_type == "zarr"
+        ), f"You can't use ZarrEcgDataset if `data_type` is not 'zarr', you provide: {self.data_type}"
+        store = zarr.DirectoryStore(path_to_zarr)
+        self.root = zarr.open_group(store, mode="r")
+
+    def read_ecg_record(self, file_path, data_type):
+        ecg_record = self.root[file_path][...].astype("float64")
+        return ecg_record

@@ -1,3 +1,0 @@
-_target_: utils.manager_utils.SequentialIterator
-batch_size: 10
-amount_of_clients: ???

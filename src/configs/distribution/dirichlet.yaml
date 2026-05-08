@@ -1,3 +1,3 @@
-name: "dirichlet"
+_target_: distributions.dirichlet.DirichletDistribution
 alpha: 0.1
 verbose: True

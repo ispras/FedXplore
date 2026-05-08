@@ -12,11 +12,10 @@ class FedCBS(BaseSelector):
             "ptbxl" not in self.cfg.train_dataset._target_
         ), "Now FedCBS doesn`t support PTB-XL dataset"
 
-    def select_clients_to_train(self, num_clients_subset, server_sampling=False):
+    def select_clients_to_train(self, num_clients_subset):
         if num_clients_subset == self.amount_of_clients:
-            if not server_sampling:
-                for i in range(self.amount_of_clients):
-                    self.selection_counter[i] += 1
+            for i in range(self.amount_of_clients):
+                self.selection_counter[i] += 1
             return list(range(self.cfg.federated_params.amount_of_clients))
 
         selected_clients = []
@@ -98,13 +97,12 @@ class FedCBS(BaseSelector):
             selected_clients.append(selected_client)
             remaining_clients.remove(selected_client)
 
-            if not server_sampling:
-                self.selection_counter[selected_client] += 1
+            self.selection_counter[selected_client] += 1
 
         return selected_clients
 
     def setup_strategy(self, trainer):
-        self.df = trainer.df
+        self.train_dataset = trainer.train_dataset
         self.amount_of_clients = self.cfg.federated_params.amount_of_clients
         # Naturally we need to set selection counters to zero
         # but if we did it, formulas don`t work
@@ -150,11 +148,13 @@ class FedCBS(BaseSelector):
     def get_clients_data_info(self):
         client_distr = {}
         client_data_count = {}
-        unique_classes = sorted(self.df.data["target"].unique())
+        unique_classes = sorted(self.train_dataset.data["target"].unique())
         amount_classes = len(unique_classes)
 
         for num_client in range(self.amount_of_clients):
-            client_data = self.df.data[self.df.data["client"] == num_client]
+            client_data = self.train_dataset.data[
+                self.train_dataset.data["client"] == num_client
+            ]
             target_counts = (
                 client_data["target"]
                 .value_counts(normalize=True)

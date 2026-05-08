@@ -14,7 +14,7 @@ class FedCor(BaseSelector):
         super().__init__(cfg)
         self.warmup = warmup
 
-    def select_clients_to_train(self, num_clients_subset, server_sampling=False):
+    def select_clients_to_train(self, num_clients_subset):
         if self.gpr is None:
             self.gpr = Kernel_GPR(
                 num_users=self.amount_of_clients,
@@ -49,7 +49,7 @@ class FedCor(BaseSelector):
     def change_functionality(self, trainer):
         # Setup server side parametrs
         clients_df_len = [
-            len(trainer.df.data[trainer.df.data["client"] == i])
+            len(trainer.train_dataset.data[trainer.train_dataset.data["client"] == i])
             for i in range(trainer.server.amount_of_clients)
         ]
         trainer.server.ts = np.array(
@@ -81,10 +81,7 @@ class FedCor(BaseSelector):
         return trainer
 
     def aggregate(self):
-        val_losses = [
-            metrics[1] if len(metrics) != 0 else 1000
-            for metrics in self.server.server_metrics
-        ]
+        val_losses = [loss for loss in self.server.server_losses]
         self.server.gt_global_losses.append(val_losses)
 
         if self.cur_round >= 1:

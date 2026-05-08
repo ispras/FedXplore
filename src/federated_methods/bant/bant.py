@@ -14,7 +14,7 @@ class BANT(ByzantineBase):
         self.num_clients = cfg.federated_params.amount_of_clients
         self.prev_trust_scores = [1 / self.num_clients] * self.num_clients
 
-    def count_trust_scores(self):
+    def calculate_aggregation_weights(self):
         self.prev_trust_scores_subset = [
             self.prev_trust_scores[rank] for rank in self.list_clients
         ]

@@ -1,0 +1,4 @@
+_target_: distributions.hospital.HospitalDistribution # only for tis.yaml dataset
+min_sample_number: 0 # minimal number of samples in hospital to consider it as a client
+max_sample_number: 10e10 # maximum number of samples in hospital to consider it as a client
+verbose: True

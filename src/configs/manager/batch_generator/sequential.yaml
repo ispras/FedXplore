@@ -1,0 +1,2 @@
+_target_: manager.batch_generator.sequential.SequentialBatchGenerator
+batch_size: 10

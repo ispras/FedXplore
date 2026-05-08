@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 
-class Cifar10ModelTrainer:
+class ImageTrainer:
     def __init__(self, cfg):
         # Always remember that you most likely
         # won't be able to change any variables in `context`,
