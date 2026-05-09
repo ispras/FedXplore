@@ -7,8 +7,18 @@ import traceback
 import warnings
 from hydra.core.hydra_config import HydraConfig
 
+_TERMINATION_REQUESTED = False
+
+
+def is_sigterm_runtime_error(exc):
+    return isinstance(exc, RuntimeError) and exc.args and exc.args[0] == signal.SIGTERM
+
 
 def handle_signal(sign, frame):
+    global _TERMINATION_REQUESTED
+    if _TERMINATION_REQUESTED:
+        return
+    _TERMINATION_REQUESTED = True
     # We wanna process the signal once
     signal.signal(sign, signal.SIG_IGN)
     raise RuntimeError(sign)  # send main process to except block
@@ -44,16 +54,23 @@ def errors_parent_handler(func):
                 signal.SIG_IGN,
             )  # In case of errors in father process we don't need to receive any signals
 
-            if not (isinstance(e, RuntimeError) and e.args[0] == signal.SIGTERM):
+            if not is_sigterm_runtime_error(e):
                 print(traceback.format_exc())
 
-            children = current_process.children()
+            children = current_process.children(recursive=True)
             for indx, child in enumerate(children):
                 try:
                     os.kill(child.pid, signal.SIGTERM)
                 except:  # already dead
                     pass
                 print(f"Child {indx} was killed!")
+            _, alive_children = psutil.wait_procs(children, timeout=3)
+            for indx, child in enumerate(alive_children):
+                try:
+                    os.kill(child.pid, signal.SIGKILL)
+                except:
+                    pass
+                print(f"Child {indx} was force killed!")
 
         remove_trust_map_file()
         sys.exit(0)
@@ -80,7 +97,8 @@ def errors_child_handler(func):
 
         except BaseException as e:
             time.sleep(2)
-            if not (isinstance(e, RuntimeError) and e.args[0] == signal.SIGTERM):
+            terminated_by_parent = is_sigterm_runtime_error(e)
+            if not terminated_by_parent:
                 print(traceback.format_exc())
             """
             Sleep is necessary.
@@ -88,11 +106,13 @@ def errors_child_handler(func):
             Father will kill those who have already born.
             So other children will survive.
             """
-            try:
-                os.kill(child_process.parent().pid, signal.SIGTERM)
-            except:
-                pass
-            sys.exit(1)
+            if not terminated_by_parent:
+                try:
+                    os.kill(child_process.parent().pid, signal.SIGTERM)
+                except:
+                    pass
+                sys.exit(1)
+            sys.exit(0)
 
     return wrapper
 

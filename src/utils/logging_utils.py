@@ -116,13 +116,27 @@ class MLFlowLogger(BaseLogger):
 
     def init_mlflow(self):
         mlflow.set_tracking_uri(self.tracking_uri)
-        mlflow.set_experiment(self.experiment_name)
+        experiment = mlflow.set_experiment(self.experiment_name)
+        if experiment is None:
+            experiment = mlflow.get_experiment_by_name(self.experiment_name)
+        self.experiment_id = getattr(experiment, "experiment_id", None)
         active_run = mlflow.active_run()
         if active_run is None:
             started_run = mlflow.start_run(run_name=self.run_name)
             self.run_id = started_run.info.run_id
         else:
             self.run_id = active_run.info.run_id
+        self.run_url = ""
+        if self.experiment_id and self.tracking_uri.startswith(("http://", "https://")):
+            self.run_url = (
+                self.tracking_uri.rstrip("/")
+                + f"/#/experiments/{self.experiment_id}/runs/{self.run_id}"
+            )
+        print(f"MLFLOW_RUN_ID={self.run_id}")
+        if self.experiment_id:
+            print(f"MLFLOW_EXPERIMENT_ID={self.experiment_id}")
+        if self.run_url:
+            print(f"MLFLOW_RUN_URL={self.run_url}")
 
     def log_run_info(self, cfg):
         mlflow.log_dict(OmegaConf.to_container(cfg, resolve=True), "config.yaml")
