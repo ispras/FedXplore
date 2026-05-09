@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import yaml
 
 try:
@@ -92,6 +93,7 @@ DASHBOARD_NAME_FILTER_KEY = "ui_dashboard_filter_name"
 DASHBOARD_METHOD_FILTER_KEY = "ui_dashboard_filter_method"
 DASHBOARD_DATASET_FILTER_KEY = "ui_dashboard_filter_dataset"
 DASHBOARD_STATUS_FILTER_KEY = "ui_dashboard_filter_status"
+SIDEBAR_BOOTSTRAP_KEY = "ui_sidebar_bootstrap_done"
 
 GENERAL_UI_KEYS = {
     VIEW_KEY,
@@ -194,7 +196,7 @@ def rerun_app() -> None:
 
 
 def install_keyboard_guard() -> None:
-    st.html(
+    components.html(
         """
         <script>
         (function () {
@@ -226,7 +228,159 @@ def install_keyboard_guard() -> None:
         })();
         </script>
         """,
-        unsafe_allow_javascript=True,
+        height=0,
+        width=0,
+    )
+
+
+def install_sidebar_controller(*, auto_expand: bool) -> None:
+    auto_expand_literal = "true" if auto_expand else "false"
+    components.html(
+        f"""
+        <script>
+        (function () {{
+          const rootDoc = window.parent.document;
+
+          const findOpenButton = function () {{
+            return (
+              rootDoc.querySelector('button[aria-label="Open sidebar"]') ||
+              rootDoc.querySelector('button[aria-label="Expand sidebar"]') ||
+              rootDoc.querySelector('[data-testid="stSidebarCollapsedControl"] button') ||
+              rootDoc.querySelector('[data-testid="collapsedControl"] button') ||
+              rootDoc.querySelector('section[data-testid="stSidebar"][aria-expanded="false"] ~ div button')
+            );
+          }};
+
+          const ensureFab = function () {{
+            let fabRoot = rootDoc.getElementById("fx-sidebar-fab-root");
+            if (!fabRoot) {{
+              fabRoot = rootDoc.createElement("div");
+              fabRoot.id = "fx-sidebar-fab-root";
+              fabRoot.innerHTML = `
+                <button id="fx-sidebar-fab" type="button" title="Open navigation" aria-label="Open navigation">
+                  <span class="fx-sidebar-fab-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" focusable="false">
+                      <path d="M6 3.5L10.5 8L6 12.5" />
+                    </svg>
+                  </span>
+                </button>
+              `;
+              rootDoc.body.appendChild(fabRoot);
+            }}
+            return fabRoot;
+          }};
+
+          const ensureStyles = function () {{
+            if (rootDoc.getElementById("fx-sidebar-fab-styles")) {{
+              return;
+            }}
+            const style = rootDoc.createElement("style");
+            style.id = "fx-sidebar-fab-styles";
+            style.textContent = `
+              #fx-sidebar-fab-root {{
+                  position: fixed;
+                  left: 1rem;
+                  top: 1rem;
+                  z-index: 1000;
+                  display: none;
+              }}
+              #fx-sidebar-fab {{
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  width: 2.8rem;
+                  height: 2.8rem;
+                  padding: 0;
+                  border: 1px solid rgba(45, 109, 246, 0.18);
+                  border-radius: 999px;
+                  background: rgba(255, 255, 255, 0.96);
+                  color: #173456;
+                  font-weight: 700;
+                  box-shadow: 0 14px 36px rgba(24, 61, 122, 0.16);
+                  backdrop-filter: blur(12px);
+                  cursor: pointer;
+                  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+              }}
+              #fx-sidebar-fab:hover {{
+                  transform: translateY(-1px);
+                  border-color: rgba(45, 109, 246, 0.32);
+                  box-shadow: 0 18px 40px rgba(24, 61, 122, 0.22);
+              }}
+              .fx-sidebar-fab-icon {{
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  width: 1.7rem;
+                  height: 1.7rem;
+                  border-radius: 999px;
+                  color: #2d6df6;
+              }}
+              .fx-sidebar-fab-icon svg {{
+                  width: 0.95rem;
+                  height: 0.95rem;
+                  display: block;
+                  stroke: currentColor;
+                  stroke-width: 2;
+                  stroke-linecap: round;
+                  stroke-linejoin: round;
+                  fill: none;
+              }}
+              @media (max-width: 900px) {{
+                  #fx-sidebar-fab-root {{
+                      left: 0.75rem;
+                      top: 0.75rem;
+                  }}
+                  #fx-sidebar-fab {{
+                      width: 2.55rem;
+                      height: 2.55rem;
+                  }}
+              }}
+            `;
+            rootDoc.head.appendChild(style);
+          }};
+
+          const openSidebar = function () {{
+            const button = findOpenButton();
+            if (!button) {{
+              return false;
+            }}
+            button.click();
+            return true;
+          }};
+
+          ensureStyles();
+          const fabRoot = ensureFab();
+          const fab = rootDoc.getElementById("fx-sidebar-fab");
+
+          const syncFabVisibility = function () {{
+            fabRoot.style.display = findOpenButton() ? "block" : "none";
+          }};
+
+          if (!rootDoc.__fedxploreSidebarFabBound) {{
+            fab.addEventListener("click", function () {{
+              openSidebar();
+              window.setTimeout(syncFabVisibility, 120);
+            }});
+            rootDoc.__fedxploreSidebarFabBound = true;
+          }}
+
+          if (!rootDoc.__fedxploreSidebarFabInterval) {{
+            rootDoc.__fedxploreSidebarFabInterval = window.setInterval(syncFabVisibility, 350);
+          }}
+
+          syncFabVisibility();
+          if ({auto_expand_literal} && !rootDoc.__fedxploreSidebarAutoExpanded) {{
+            rootDoc.__fedxploreSidebarAutoExpanded = true;
+            window.setTimeout(function () {{
+              openSidebar();
+              window.setTimeout(syncFabVisibility, 120);
+            }}, 180);
+          }}
+        }})();
+        </script>
+        """,
+        height=0,
+        width=0,
     )
 
 
@@ -614,6 +768,7 @@ def build_default_state(repo_root: Path, options: dict[str, list[str]]) -> dict[
         PENDING_TEMPLATE_KEY: "",
         PENDING_RESET_KEY: False,
         PENDING_STEP_KEY: "",
+        SIDEBAR_BOOTSTRAP_KEY: False,
         "ui_run_name": DEFAULT_RUN_NAME,
         "ui_mlflow_ui_url": mlflow_defaults["ui_url"],
         "ui_raw_overrides": "",
@@ -1957,6 +2112,10 @@ def main() -> None:
     ensure_state_defaults(defaults)
     keep_ui_state_alive()
     restore_view_from_query_params()
+    install_sidebar_controller(
+        auto_expand=not bool(st.session_state.get(SIDEBAR_BOOTSTRAP_KEY, False))
+    )
+    st.session_state[SIDEBAR_BOOTSTRAP_KEY] = True
 
     try:
         templates = load_templates(repo_root / "ui/templates")
