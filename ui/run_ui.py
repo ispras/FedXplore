@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -13,27 +14,34 @@ import yaml
 try:
     from .launcher import (
         DEFAULT_RUN_NAME,
+        DEFAULT_LOCAL_MLFLOW_UI_URL,
         TemplateSpec,
         build_command,
+        build_mlflow_run_url,
         build_overrides,
         build_subprocess_env,
         discover_config_group_options,
+        ensure_local_mlflow_ui,
         extract_main_default_selections,
         find_duplicate_override_keys,
         flatten_mapping,
         format_manual_shell_command,
         get_component_default_params,
+        get_local_mlflow_tracking_uri,
         get_main_config,
         get_mlflow_defaults,
         get_repo_root,
+        infer_mlflow_target,
         list_runs,
         load_templates,
         normalize_mlflow_ui_url,
         parse_iso_datetime,
         parse_raw_overrides,
+        persist_mlflow_metadata,
         preview_stdout_path,
         query_gpus,
         read_run_events,
+        read_status,
         read_spec,
         start_run,
         stop_run,
@@ -43,27 +51,34 @@ try:
 except ImportError:
     from launcher import (
         DEFAULT_RUN_NAME,
+        DEFAULT_LOCAL_MLFLOW_UI_URL,
         TemplateSpec,
         build_command,
+        build_mlflow_run_url,
         build_overrides,
         build_subprocess_env,
         discover_config_group_options,
+        ensure_local_mlflow_ui,
         extract_main_default_selections,
         find_duplicate_override_keys,
         flatten_mapping,
         format_manual_shell_command,
         get_component_default_params,
+        get_local_mlflow_tracking_uri,
         get_main_config,
         get_mlflow_defaults,
         get_repo_root,
+        infer_mlflow_target,
         list_runs,
         load_templates,
         normalize_mlflow_ui_url,
         parse_iso_datetime,
         parse_raw_overrides,
+        persist_mlflow_metadata,
         preview_stdout_path,
         query_gpus,
         read_run_events,
+        read_status,
         read_spec,
         start_run,
         stop_run,
@@ -94,6 +109,10 @@ DASHBOARD_METHOD_FILTER_KEY = "ui_dashboard_filter_method"
 DASHBOARD_DATASET_FILTER_KEY = "ui_dashboard_filter_dataset"
 DASHBOARD_STATUS_FILTER_KEY = "ui_dashboard_filter_status"
 SIDEBAR_BOOTSTRAP_KEY = "ui_sidebar_bootstrap_done"
+MLFLOW_TARGET_KEY = "ui_mlflow_target"
+MLFLOW_TARGET_APPLIED_KEY = "ui_mlflow_target_applied"
+PENDING_BROWSER_OPEN_KEY = "ui_pending_browser_open_url"
+PENDING_BROWSER_OPEN_NONCE_KEY = "ui_pending_browser_open_nonce"
 
 GENERAL_UI_KEYS = {
     VIEW_KEY,
@@ -109,6 +128,10 @@ GENERAL_UI_KEYS = {
     DASHBOARD_METHOD_FILTER_KEY,
     DASHBOARD_DATASET_FILTER_KEY,
     DASHBOARD_STATUS_FILTER_KEY,
+    MLFLOW_TARGET_KEY,
+    MLFLOW_TARGET_APPLIED_KEY,
+    PENDING_BROWSER_OPEN_KEY,
+    PENDING_BROWSER_OPEN_NONCE_KEY,
 }
 
 SELECTION_KEYS = {
@@ -198,6 +221,33 @@ def rerun_app() -> None:
         st.rerun()
         return
     st.experimental_rerun()
+
+
+def queue_browser_open(url: str) -> None:
+    st.session_state[PENDING_BROWSER_OPEN_KEY] = str(url or "").strip()
+    st.session_state[PENDING_BROWSER_OPEN_NONCE_KEY] = time.time_ns()
+
+
+def render_pending_browser_open() -> None:
+    url = str(st.session_state.get(PENDING_BROWSER_OPEN_KEY, "") or "").strip()
+    nonce = int(st.session_state.get(PENDING_BROWSER_OPEN_NONCE_KEY, 0) or 0)
+    if not url:
+        return
+    st.session_state[PENDING_BROWSER_OPEN_KEY] = ""
+    st.session_state[PENDING_BROWSER_OPEN_NONCE_KEY] = 0
+    components.html(
+        f"""
+        <div style="display:none">{nonce}</div>
+        <script>
+        const targetUrl = {json.dumps(url)};
+        const targetNonce = {nonce};
+        window.parent.open(targetUrl, "_blank", "noopener,noreferrer");
+        window.__fedxploreLastOpenedMlflowNonce = targetNonce;
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def install_keyboard_guard() -> None:
@@ -298,98 +348,132 @@ def install_sidebar_controller(*, auto_expand: bool) -> None:
         <script>
         (function () {{
           const rootDoc = window.parent.document;
+          const isVisible = function (node) {{
+            if (!node) {{
+              return false;
+            }}
+            const rect = node.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          }};
+
+          const getSidebar = function () {{
+            return rootDoc.querySelector('section[data-testid="stSidebar"]');
+          }};
+
+          const sidebarButtons = function () {{
+            return Array.from(rootDoc.querySelectorAll("button"));
+          }};
+
+          const matchesSidebarControl = function (button, pattern) {{
+            const text = [
+              button.getAttribute("aria-label") || "",
+              button.getAttribute("title") || "",
+              button.textContent || "",
+            ].join(" ");
+            return pattern.test(text);
+          }};
 
           const findOpenButton = function () {{
             return (
-              rootDoc.querySelector('button[aria-label="Open sidebar"]') ||
-              rootDoc.querySelector('button[aria-label="Expand sidebar"]') ||
+              sidebarButtons().find((button) => isVisible(button) && matchesSidebarControl(button, /(open|expand)\\s+sidebar/i)) ||
               rootDoc.querySelector('[data-testid="stSidebarCollapsedControl"] button') ||
               rootDoc.querySelector('[data-testid="collapsedControl"] button') ||
-              rootDoc.querySelector('section[data-testid="stSidebar"][aria-expanded="false"] ~ div button')
+              rootDoc.querySelector('header[data-testid="stHeader"] button') ||
+              sidebarButtons().find((button) => {{
+                const rect = button.getBoundingClientRect();
+                return rect.left < 120 && rect.top < 120 && matchesSidebarControl(button, /(sidebar|navigation|open|expand)/i);
+              }})
             );
           }};
 
-          const ensureFab = function () {{
-            let fabRoot = rootDoc.getElementById("fx-sidebar-fab-root");
-            if (!fabRoot) {{
-              fabRoot = rootDoc.createElement("div");
-              fabRoot.id = "fx-sidebar-fab-root";
-              fabRoot.innerHTML = `
-                <button id="fx-sidebar-fab" type="button" title="Open navigation" aria-label="Open navigation">
-                  <span class="fx-sidebar-fab-icon" aria-hidden="true">
-                    <svg viewBox="0 0 16 16" focusable="false">
-                      <path d="M6 3.5L10.5 8L6 12.5" />
-                    </svg>
-                  </span>
+          const findCloseButton = function () {{
+            const sidebar = getSidebar();
+            if (!sidebar) {{
+              return null;
+            }}
+            return (
+              sidebar.querySelector('button[aria-label="Close sidebar"]') ||
+              sidebar.querySelector('button[aria-label="Collapse sidebar"]') ||
+              sidebar.querySelector('button[title="Close sidebar"]') ||
+              sidebar.querySelector('button[title="Collapse sidebar"]') ||
+              Array.from(sidebar.querySelectorAll("button")).find((button) => isVisible(button) && matchesSidebarControl(button, /(close|collapse)\\s+sidebar/i)) ||
+              Array.from(sidebar.querySelectorAll("button")).find((button) => {{
+                if (!isVisible(button)) {{
+                  return false;
+                }}
+                const rect = button.getBoundingClientRect();
+                return rect.top < 140;
+              }}) ||
+              null
+            );
+          }};
+
+          const ensureToggle = function () {{
+            let toggleRoot = rootDoc.getElementById("fx-sidebar-toggle-root");
+            if (!toggleRoot) {{
+              toggleRoot = rootDoc.createElement("div");
+              toggleRoot.id = "fx-sidebar-toggle-root";
+              toggleRoot.innerHTML = `
+                <button id="fx-sidebar-toggle" type="button" title="Toggle navigation" aria-label="Toggle navigation">
+                  <span id="fx-sidebar-toggle-icon" class="fx-sidebar-toggle-icon" aria-hidden="true">&gt;&gt;</span>
                 </button>
               `;
-              rootDoc.body.appendChild(fabRoot);
+              rootDoc.body.appendChild(toggleRoot);
             }}
-            return fabRoot;
+            return toggleRoot;
           }};
 
           const ensureStyles = function () {{
-            if (rootDoc.getElementById("fx-sidebar-fab-styles")) {{
+            if (rootDoc.getElementById("fx-sidebar-toggle-styles")) {{
               return;
             }}
             const style = rootDoc.createElement("style");
-            style.id = "fx-sidebar-fab-styles";
+            style.id = "fx-sidebar-toggle-styles";
             style.textContent = `
-              #fx-sidebar-fab-root {{
+              #fx-sidebar-toggle-root {{
                   position: fixed;
-                  left: 1rem;
                   top: 1rem;
                   z-index: 1000;
-                  display: none;
+                  display: block;
               }}
-              #fx-sidebar-fab {{
+              #fx-sidebar-toggle {{
                   display: inline-flex;
                   align-items: center;
                   justify-content: center;
-                  width: 2.8rem;
+                  min-width: 2.9rem;
                   height: 2.8rem;
-                  padding: 0;
+                  padding: 0 0.72rem;
                   border: 1px solid rgba(45, 109, 246, 0.18);
                   border-radius: 999px;
                   background: rgba(255, 255, 255, 0.96);
                   color: #173456;
                   font-weight: 700;
+                  font-size: 1rem;
+                  letter-spacing: -0.08em;
                   box-shadow: 0 14px 36px rgba(24, 61, 122, 0.16);
                   backdrop-filter: blur(12px);
                   cursor: pointer;
                   transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
               }}
-              #fx-sidebar-fab:hover {{
+              #fx-sidebar-toggle:hover {{
                   transform: translateY(-1px);
                   border-color: rgba(45, 109, 246, 0.32);
                   box-shadow: 0 18px 40px rgba(24, 61, 122, 0.22);
               }}
-              .fx-sidebar-fab-icon {{
+              .fx-sidebar-toggle-icon {{
                   display: inline-flex;
                   align-items: center;
                   justify-content: center;
-                  width: 1.7rem;
-                  height: 1.7rem;
-                  border-radius: 999px;
                   color: #2d6df6;
-              }}
-              .fx-sidebar-fab-icon svg {{
-                  width: 0.95rem;
-                  height: 0.95rem;
-                  display: block;
-                  stroke: currentColor;
-                  stroke-width: 2;
-                  stroke-linecap: round;
-                  stroke-linejoin: round;
-                  fill: none;
+                  font-weight: 800;
+                  line-height: 1;
               }}
               @media (max-width: 900px) {{
-                  #fx-sidebar-fab-root {{
-                      left: 0.75rem;
+                  #fx-sidebar-toggle-root {{
                       top: 0.75rem;
                   }}
-                  #fx-sidebar-fab {{
-                      width: 2.55rem;
+                  #fx-sidebar-toggle {{
+                      min-width: 2.55rem;
                       height: 2.55rem;
                   }}
               }}
@@ -397,8 +481,7 @@ def install_sidebar_controller(*, auto_expand: bool) -> None:
             rootDoc.head.appendChild(style);
           }};
 
-          const openSidebar = function () {{
-            const button = findOpenButton();
+          const clickButton = function (button) {{
             if (!button) {{
               return false;
             }}
@@ -406,32 +489,60 @@ def install_sidebar_controller(*, auto_expand: bool) -> None:
             return true;
           }};
 
-          ensureStyles();
-          const fabRoot = ensureFab();
-          const fab = rootDoc.getElementById("fx-sidebar-fab");
-
-          const syncFabVisibility = function () {{
-            fabRoot.style.display = findOpenButton() ? "block" : "none";
+          const openSidebar = function () {{
+            return clickButton(findOpenButton());
           }};
 
-          if (!rootDoc.__fedxploreSidebarFabBound) {{
-            fab.addEventListener("click", function () {{
-              openSidebar();
-              window.setTimeout(syncFabVisibility, 120);
+          const closeSidebar = function () {{
+            return clickButton(findCloseButton());
+          }};
+
+          const toggleSidebar = function () {{
+            const openButton = findOpenButton();
+            if (openButton) {{
+              return clickButton(openButton);
+            }}
+            return closeSidebar();
+          }};
+
+          ensureStyles();
+          const toggleRoot = ensureToggle();
+          const toggleButton = rootDoc.getElementById("fx-sidebar-toggle");
+          const toggleIcon = rootDoc.getElementById("fx-sidebar-toggle-icon");
+
+          const syncToggleState = function () {{
+            const collapsed = Boolean(findOpenButton());
+            const sidebar = getSidebar();
+            toggleIcon.textContent = collapsed ? ">>" : "<<";
+            toggleButton.setAttribute("title", collapsed ? "Expand navigation" : "Collapse navigation");
+            toggleButton.setAttribute("aria-label", collapsed ? "Expand navigation" : "Collapse navigation");
+            if (!collapsed && sidebar) {{
+              const rect = sidebar.getBoundingClientRect();
+              const left = Math.max(12, rect.right - 24);
+              toggleRoot.style.left = `${{left}}px`;
+            }} else {{
+              toggleRoot.style.left = "1rem";
+            }}
+          }};
+
+          if (!rootDoc.__fedxploreSidebarToggleBound) {{
+            toggleButton.addEventListener("click", function () {{
+              toggleSidebar();
+              window.setTimeout(syncToggleState, 120);
             }});
-            rootDoc.__fedxploreSidebarFabBound = true;
+            rootDoc.__fedxploreSidebarToggleBound = true;
           }}
 
-          if (!rootDoc.__fedxploreSidebarFabInterval) {{
-            rootDoc.__fedxploreSidebarFabInterval = window.setInterval(syncFabVisibility, 350);
+          if (!rootDoc.__fedxploreSidebarToggleInterval) {{
+            rootDoc.__fedxploreSidebarToggleInterval = window.setInterval(syncToggleState, 350);
           }}
 
-          syncFabVisibility();
+          syncToggleState();
           if ({auto_expand_literal} && !rootDoc.__fedxploreSidebarAutoExpanded) {{
             rootDoc.__fedxploreSidebarAutoExpanded = true;
             window.setTimeout(function () {{
               openSidebar();
-              window.setTimeout(syncFabVisibility, 120);
+              window.setTimeout(syncToggleState, 120);
             }}, 180);
           }}
         }})();
@@ -845,6 +956,10 @@ def build_default_state(repo_root: Path, options: dict[str, list[str]]) -> dict[
     config = get_main_config(repo_root)
     default_selections = extract_main_default_selections(repo_root)
     mlflow_defaults = get_mlflow_defaults(repo_root)
+    mlflow_target = infer_mlflow_target(
+        mlflow_defaults.get("tracking_uri"),
+        remote_tracking_uri=mlflow_defaults.get("remote_tracking_uri"),
+    )
     main_flat_defaults = flatten_mapping(
         {
             key: value
@@ -866,6 +981,8 @@ def build_default_state(repo_root: Path, options: dict[str, list[str]]) -> dict[
         SIDEBAR_BOOTSTRAP_KEY: False,
         "ui_run_name": DEFAULT_RUN_NAME,
         "ui_mlflow_ui_url": mlflow_defaults["ui_url"],
+        MLFLOW_TARGET_KEY: mlflow_target,
+        MLFLOW_TARGET_APPLIED_KEY: "",
         "ui_raw_overrides": "",
         TEMPLATE_OVERRIDES_KEY: "",
         DEVICE_MODE_KEY: str(main_flat_defaults.get("training_params.device", "cuda")),
@@ -1132,6 +1249,23 @@ def resolve_template_key(raw_value: str, templates: dict[str, TemplateSpec]) -> 
     return ""
 
 
+def apply_mlflow_target_preset(repo_root: Path, target: str) -> None:
+    mlflow_defaults = get_mlflow_defaults(repo_root)
+    tracking_uri_key = component_widget_key("logger", "mlflow", "tracking_uri")
+    if target == "remote":
+        tracking_uri = (
+            mlflow_defaults.get("remote_tracking_uri", "").strip() or mlflow_defaults["tracking_uri"]
+        )
+        ui_url = normalize_mlflow_ui_url(tracking_uri)
+    else:
+        tracking_uri = get_local_mlflow_tracking_uri(repo_root)
+        ui_url = DEFAULT_LOCAL_MLFLOW_UI_URL
+
+    st.session_state[tracking_uri_key] = tracking_uri
+    st.session_state["ui_mlflow_ui_url"] = ui_url
+    st.session_state[MLFLOW_TARGET_APPLIED_KEY] = target
+
+
 def render_sidebar() -> None:
     with st.sidebar:
         st.markdown(brand_markup(level=2), unsafe_allow_html=True)
@@ -1245,6 +1379,38 @@ def extract_run_meta(repo_root: Path, run: dict[str, Any]) -> dict[str, Any]:
         "pid": run.get("pid", "-"),
         "mlflow_url": run.get("mlflow_url", ""),
         "log_path": format_rel_path(repo_root, log_path),
+    }
+
+
+def get_run_mlflow_context(repo_root: Path, run: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+    payload = meta.get("payload", {}) or {}
+    selected_groups = payload.get("selected_groups", {}) or {}
+    component_params = payload.get("component_params", {}) or {}
+    logger_name = str(selected_groups.get("logger") or meta.get("logger") or "").strip()
+    logger_params = component_params.get("logger", {}) or {}
+    tracking_uri = str(logger_params.get("tracking_uri", "") or "").strip()
+    ui_url_hint = str(meta.get("mlflow_url", "") or "").strip()
+    target = str(payload.get("mlflow_target", "") or "").strip()
+    if not target:
+        target = infer_mlflow_target(
+            tracking_uri,
+            remote_tracking_uri=get_mlflow_defaults(repo_root).get("remote_tracking_uri"),
+        )
+
+    status = read_status(Path(run["run_dir"]))
+    mlflow_run_id = str(status.get("mlflow_run_id", "") or "").strip()
+    mlflow_experiment_id = str(status.get("mlflow_experiment_id", "") or "").strip()
+    mlflow_url = str(status.get("mlflow_url", "") or ui_url_hint).strip()
+
+    return {
+        "enabled": logger_name == "mlflow",
+        "target": target,
+        "tracking_uri": tracking_uri,
+        "ui_url_hint": ui_url_hint,
+        "run_id": mlflow_run_id,
+        "experiment_id": mlflow_experiment_id,
+        "url": mlflow_url,
+        "status": status,
     }
 
 
@@ -1518,6 +1684,7 @@ def collect_form_payload(
         "component_params": component_params,
         "attack_type": attack_type,
         "attack_params": attack_params,
+        "mlflow_target": str(st.session_state.get(MLFLOW_TARGET_KEY, "remote") or "remote"),
         "disable_proxy_for_mlflow": True,
     }
     errors = [*base_errors, *attack_errors, *component_errors, *raw_errors, *template_errors]
@@ -1538,11 +1705,13 @@ def render_template_section(
     st.markdown("### Template")
     st.markdown("<div class='fx-step-note'>Choose a template or keep a manual setup.</div>", unsafe_allow_html=True)
     template_options = [""] + list(templates.keys())
+
     def format_template_value(value: str) -> str:
         if not value:
             return "Manual"
         template = templates.get(str(value))
         return template.name if template is not None else str(value)
+
     selected_template = st.selectbox(
         "Template",
         options=template_options,
@@ -1550,29 +1719,21 @@ def render_template_section(
         format_func=format_template_value,
     )
     resolved_template_key = resolve_template_key(str(selected_template or ""), templates)
-    action_cols = st.columns([1, 1, 5])
-    with action_cols[0]:
-        if st.button(
-            "Load",
-            key="template_load_button",
-            disabled=not resolved_template_key,
-            use_container_width=True,
-        ):
-            queue_template_load(resolved_template_key, target_step="run")
-            rerun_app()
-    with action_cols[1]:
-        if st.button("Reset", key="template_reset_button", use_container_width=True):
-            queue_template_reset(target_step="template")
-            rerun_app()
-    with action_cols[2]:
-        loaded_template = st.session_state.get(LOADED_TEMPLATE_KEY, "")
-        if loaded_template:
-            st.write(templates[loaded_template].description or templates[loaded_template].name)
-        elif resolved_template_key:
-            st.write(
-                templates[resolved_template_key].description
-                or templates[resolved_template_key].name
-            )
+    loaded_template = resolve_template_key(
+        str(st.session_state.get(LOADED_TEMPLATE_KEY, "") or ""),
+        templates,
+    )
+    current_step = str(st.session_state.get(CREATE_STEP_KEY, "template") or "template")
+    if resolved_template_key and resolved_template_key != loaded_template:
+        queue_template_load(resolved_template_key, target_step=current_step)
+        rerun_app()
+    if not resolved_template_key and loaded_template:
+        queue_template_reset(target_step=current_step)
+        rerun_app()
+
+    active_template = resolved_template_key or loaded_template
+    if active_template:
+        st.write(templates[active_template].description or templates[active_template].name)
 
 
 def render_run_setup_step(repo_root: Path) -> None:
@@ -1657,6 +1818,19 @@ def render_logging_step(repo_root: Path, options: dict[str, list[str]]) -> None:
     logging_cols = st.columns([1.2, 2])
     with logging_cols[0]:
         render_select_input("Logger", options["logger"], key="ui_logger")
+        if st.session_state["ui_logger"] == "mlflow":
+            st.radio(
+                "MLflow target",
+                options=["remote", "local"],
+                key=MLFLOW_TARGET_KEY,
+                horizontal=True,
+                format_func=lambda value: "Remote" if value == "remote" else "Local",
+            )
+            selected_target = str(st.session_state.get(MLFLOW_TARGET_KEY, "remote") or "remote")
+            applied_target = str(st.session_state.get(MLFLOW_TARGET_APPLIED_KEY, "") or "")
+            if selected_target != applied_target:
+                apply_mlflow_target_preset(repo_root, selected_target)
+                rerun_app()
     with logging_cols[1]:
         render_component_section(repo_root, "logger", st.session_state["ui_logger"])
         if st.session_state["ui_logger"] == "mlflow":
@@ -1664,8 +1838,16 @@ def render_logging_step(repo_root: Path, options: dict[str, list[str]]) -> None:
                 component_widget_key("logger", "mlflow", "tracking_uri"),
                 "",
             )
-            if not st.session_state.get("ui_mlflow_ui_url") and tracking_uri:
-                st.session_state["ui_mlflow_ui_url"] = normalize_mlflow_ui_url(str(tracking_uri))
+            if not st.session_state.get("ui_mlflow_ui_url"):
+                if st.session_state.get(MLFLOW_TARGET_KEY) == "local":
+                    st.session_state["ui_mlflow_ui_url"] = DEFAULT_LOCAL_MLFLOW_UI_URL
+                elif tracking_uri:
+                    st.session_state["ui_mlflow_ui_url"] = normalize_mlflow_ui_url(str(tracking_uri))
+            if st.session_state.get(MLFLOW_TARGET_KEY) == "local":
+                st.caption(
+                    "Local MLflow store: "
+                    + format_rel_path(repo_root, get_local_mlflow_tracking_uri(repo_root))
+                )
             st.text_input("MLflow UI", key="ui_mlflow_ui_url")
 
 
@@ -2142,6 +2324,7 @@ def render_run_detail_page(repo_root: Path, runs: list[dict[str, Any]], defaults
         return
 
     meta = extract_run_meta(repo_root, run)
+    mlflow_context = get_run_mlflow_context(repo_root, run, meta)
     header_cols = st.columns([4.8, 2.8])
     with header_cols[0]:
         render_run_header(meta, run)
@@ -2166,13 +2349,48 @@ def render_run_detail_page(repo_root: Path, runs: list[dict[str, Any]], defaults
                 navigate_to(VIEW_CREATE)
                 rerun_app()
         with action_grid[1]:
-            if meta["mlflow_url"]:
-                if hasattr(st, "link_button"):
-                    st.link_button("MLflow", meta["mlflow_url"], use_container_width=True)
-                else:
-                    st.markdown(f"[MLflow]({meta['mlflow_url']})")
-            else:
-                st.button("MLflow", key="run_mlflow_disabled", disabled=True, use_container_width=True)
+            mlflow_clicked = st.button(
+                "MLflow",
+                key="run_mlflow_open",
+                disabled=not mlflow_context["enabled"],
+                use_container_width=True,
+            )
+            if mlflow_clicked:
+                try:
+                    target_url = ""
+                    if mlflow_context["target"] == "local":
+                        base_ui_url = ensure_local_mlflow_ui(
+                            repo_root,
+                            mlflow_context["tracking_uri"],
+                            preferred_ui_url=mlflow_context["ui_url_hint"] or DEFAULT_LOCAL_MLFLOW_UI_URL,
+                        )
+                        target_url = build_mlflow_run_url(
+                            base_ui_url,
+                            mlflow_context["experiment_id"],
+                            mlflow_context["run_id"],
+                        )
+                        persist_mlflow_metadata(
+                            Path(run["run_dir"]),
+                            mlflow_context["status"],
+                            mlflow_url=target_url or base_ui_url,
+                            mlflow_run_id=mlflow_context["run_id"] or None,
+                            mlflow_experiment_id=mlflow_context["experiment_id"] or None,
+                        )
+                    else:
+                        target_url = (
+                            mlflow_context["url"]
+                            or build_mlflow_run_url(
+                                normalize_mlflow_ui_url(mlflow_context["tracking_uri"]),
+                                mlflow_context["experiment_id"],
+                                mlflow_context["run_id"],
+                            )
+                        )
+
+                    if not target_url:
+                        raise RuntimeError("MLflow URL is not available for this run yet.")
+                    queue_browser_open(target_url)
+                except RuntimeError as exc:
+                    st.error(str(exc))
 
     tabs = st.tabs(["Logs", "Parameters", "Journal", "Files", "Overview"])
     with tabs[0]:
@@ -2228,6 +2446,7 @@ def main() -> None:
         render_run_detail_page(repo_root, runs, defaults)
     else:
         render_dashboard_page(repo_root, runs)
+    render_pending_browser_open()
 
 
 if __name__ == "__main__":

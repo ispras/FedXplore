@@ -13,6 +13,7 @@ __pycache__/
 **/ptbxl/
 **/tiny_imagenet/
 *.egg-info
+*.db
 helpers/dataset_statistics/dataset-stats-collector.html
 
 # PyBuilder
@@ -21,6 +22,7 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*.pdf
 
 # IPython
 profile_default/

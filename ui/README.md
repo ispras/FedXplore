@@ -111,12 +111,15 @@ Inside that directory the UI keeps:
 
 If `logger=mlflow` is selected, the UI can:
 
-- prefill tracking defaults from the repo config and environment
+- switch between remote tracking and a local file-backed store at `outputs/mlruns`
+- prefill the remote tracking URI from the repo config
 - store an MLflow run link with the run when the logger reports it
+- start a local `mlflow ui` automatically on the first `MLflow` click for a given store
+- reuse that local MLflow UI process for the same store on later clicks
 - disable proxy environment variables for the child process automatically
 - add MLflow-related hosts to `NO_PROXY`
 
-This is useful when the local shell session is behind a proxy but the MLflow server should be reached directly.
+This is useful when the local shell session is behind a proxy but the remote MLflow server should be reached directly.
 
 ## GPU view
 
@@ -131,6 +134,7 @@ It refreshes inside the create page and is only meant to help choose devices bef
 ## Templates
 
 Templates live in `ui/templates/*.yaml`.
+Selecting a template in the UI applies it immediately.
 
 Each template can define:
 

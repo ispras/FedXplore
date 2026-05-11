@@ -8,16 +8,21 @@ from importlib.util import find_spec
 from pathlib import Path
 
 from ui.launcher import (
+    DEFAULT_MLFLOW_REMOTE_URI,
     build_command,
+    build_mlflow_run_url,
     build_overrides,
     build_subprocess_env,
     create_run_dir,
     extract_mlflow_run_url_from_text,
     format_shell_command,
+    get_local_mlflow_tracking_uri,
+    infer_mlflow_target,
     is_pid_alive,
     load_templates,
     parse_iso_datetime,
     parse_raw_overrides,
+    persist_mlflow_metadata,
     read_status,
     write_status,
 )
@@ -98,11 +103,41 @@ class LauncherTests(unittest.TestCase):
             "http://10.100.202.109:5000/#/experiments/168/runs/abc",
         )
 
+    def test_build_mlflow_run_url_from_base_ui_url(self) -> None:
+        self.assertEqual(
+            build_mlflow_run_url(
+                "http://127.0.0.1:5000/#/experiments",
+                "168",
+                "abc",
+            ),
+            "http://127.0.0.1:5000/#/experiments/168/runs/abc",
+        )
+
     def test_parse_iso_datetime_supports_timezone_iso(self) -> None:
         parsed = parse_iso_datetime("2026-05-09T15:08:32+03:00")
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed.year, 2026)
         self.assertEqual(parsed.minute, 8)
+
+    def test_infer_mlflow_target_detects_remote_and_local(self) -> None:
+        self.assertEqual(
+            infer_mlflow_target(
+                DEFAULT_MLFLOW_REMOTE_URI,
+                remote_tracking_uri=DEFAULT_MLFLOW_REMOTE_URI,
+            ),
+            "remote",
+        )
+        self.assertEqual(
+            infer_mlflow_target("/tmp/mlruns", remote_tracking_uri=DEFAULT_MLFLOW_REMOTE_URI),
+            "local",
+        )
+
+    def test_get_local_mlflow_tracking_uri_creates_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            tracking_uri = get_local_mlflow_tracking_uri(repo_root)
+            self.assertTrue(Path(tracking_uri).is_dir())
+            self.assertEqual(Path(tracking_uri).name, "mlruns")
 
     def test_build_overrides_skips_empty_optional_groups(self) -> None:
         overrides = build_overrides(
@@ -177,6 +212,30 @@ class LauncherTests(unittest.TestCase):
             loaded = read_status(run_dir)
 
             self.assertEqual(loaded, status)
+
+    @unittest.skipUnless(find_spec("yaml") is not None, "PyYAML is not installed")
+    def test_persist_mlflow_metadata_updates_status_and_spec(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            run_dir = Path(tmp_dir) / "run"
+            run_dir.mkdir()
+            write_status(run_dir, {"run_id": "demo", "status": "running"})
+            (run_dir / "spec.yaml").write_text("run_id: demo\n", encoding="utf-8")
+
+            persisted = persist_mlflow_metadata(
+                run_dir,
+                read_status(run_dir),
+                mlflow_url="http://127.0.0.1:5000/#/experiments/168/runs/abc",
+                mlflow_run_id="abc",
+                mlflow_experiment_id="168",
+            )
+
+            self.assertEqual(
+                persisted["mlflow_url"],
+                "http://127.0.0.1:5000/#/experiments/168/runs/abc",
+            )
+            self.assertEqual(persisted["mlflow_run_id"], "abc")
+            self.assertEqual(persisted["mlflow_experiment_id"], "168")
+            self.assertIn("mlflow_url", (run_dir / "spec.yaml").read_text(encoding="utf-8"))
 
     def test_parse_raw_overrides_ignores_comments_and_blank_lines(self) -> None:
         raw_text = """
