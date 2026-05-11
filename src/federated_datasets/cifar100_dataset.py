@@ -6,7 +6,7 @@ import pandas as pd
 from PIL import Image
 import torchvision.transforms as transforms
 from .federated_dataset import FederatedDataset
-from utils.dataset_utils import set_data_configs, get_target_dir, save_map_files
+from utils.dataset_utils import get_target_dir, save_map_files
 
 
 class Cifar100Dataset(FederatedDataset):
@@ -57,8 +57,6 @@ class Cifar100Dataset(FederatedDataset):
         super().downloading()
         # 4. Save map-files in target directory
         save_map_files(train_df, test_df, self.target_dir)
-        # 5. Update paths in yaml config
-        set_data_configs(self.target_dir, config_names=["cifar100.yaml"])
 
     def __getitem__(self, index):
         image = Image.open(self.data["fpath"][index])

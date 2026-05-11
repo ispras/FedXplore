@@ -4,7 +4,7 @@ import torchvision.transforms as transforms
 import pandas as pd
 from datasets import load_dataset
 from .federated_dataset import FederatedDataset
-from utils.dataset_utils import get_target_dir, save_map_files, set_data_configs
+from utils.dataset_utils import get_target_dir, save_map_files
 
 
 class TinyImageNet(FederatedDataset):
@@ -47,8 +47,6 @@ class TinyImageNet(FederatedDataset):
         super().downloading()
         # 4. Save map-files in target directory
         save_map_files(train_df, test_df, self.target_dir)
-        # 5. Update paths in yaml config
-        set_data_configs(self.target_dir, config_names=["cifar10.yaml"])
 
     def __getitem__(self, index):
         fpath = self.data.at[index, "fpath"]

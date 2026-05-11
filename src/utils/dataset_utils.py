@@ -1,7 +1,14 @@
 import os
-import yaml
-import zarr
-from ecglib.data.datasets import EcgDataset
+from pathlib import Path
+
+try:
+    import zarr
+except ImportError:  # pragma: no cover - optional dependency
+    zarr = None
+try:
+    from ecglib.data.datasets import EcgDataset
+except ImportError:  # pragma: no cover - optional dependency
+    EcgDataset = None
 
 
 def get_target_dir(cfg, default_dir="cifar10"):
@@ -21,77 +28,36 @@ def save_map_files(train_df, test_df, target_dir):
     test_df.to_csv(os.path.join(target_dir, "test_map_file.csv"), index=False)
 
 
-def set_data_configs(target_path, config_names=["cifar10.yaml"]):
-    print("Setting paths to .yaml files...\n")
-    # HARDCODE paths
-    config_dir = "src/configs/dataset/"
-    if not os.path.isdir(config_dir):
-        print(
-            f"Directory {config_dir} not found. Set paths inside .yaml configs manually"
-        )
-        return
+def resolve_data_source_path(base_path, entry):
+    candidate = Path(str(entry)).expanduser()
+    if candidate.is_absolute():
+        return str(candidate)
 
-    if not os.path.isabs(target_path):
-        curent_run_path = os.getcwd()
-        target_path = os.path.join(curent_run_path, target_path)
-
-    for filename in os.listdir(config_dir):
-        if filename not in config_names:
-            continue
-
-        filepath = os.path.join(config_dir, filename)
-        with open(filepath, "r") as f:
-            data = yaml.safe_load(f)
-
-        data_sources = data.get("data_sources", {})
-
-        if "test_map_file" in data_sources:
-            test_map_path = [os.path.join(target_path, "test_map_file.csv")]
-            data_sources["test_map_file"] = test_map_path
-
-        if "train_map_file" in data_sources:
-            train_map_path = [os.path.join(target_path, "train_map_file.csv")]
-            data_sources["train_map_file"] = train_map_path
-
-        data["data_sources"] = data_sources
-
-        with open(filepath, "w") as f:
-            yaml.dump(data, f, default_flow_style=False)
-
-
-def get_all_usernames():
-    # Return all users in system
-    with open("/etc/passwd", "r") as f:
-        users = [line.split(":")[0] for line in f.readlines()]
-    return users
+    root = Path(str(base_path)).expanduser()
+    if not root.is_absolute():
+        root = Path.cwd() / root
+    return str((root / candidate).resolve())
 
 
 def update_data_sources(base_path, data_sources):
-    usernames = get_all_usernames()
-    
-    # We go through all data_sources and correct them in each path
-    # (including path_to_zarr, filetered_map_files, etc.)
-    for data_sources_type in data_sources.keys():
-        for i in range(len(data_sources[data_sources_type])):
-            if any(
-                user in data_sources[data_sources_type][i].split("/")
-                for user in usernames
-            ):
-                # if it leads to a user folder, then we don't update anything
-                continue
-            
-            path_without_base = "/".join(
-                data_sources[data_sources_type][i].split("/")[2:]
-            )
-            fpath = os.path.join("/", base_path, path_without_base)
-            data_sources[data_sources_type][i] = fpath
+    # Normalize relative data-source paths against `base_path`.
+    # Absolute paths are preserved as-is.
+    for data_sources_type in list(data_sources.keys()):
+        entries = data_sources[data_sources_type]
+        if entries is None:
+            continue
+        if isinstance(entries, str):
+            entries = [entries]
+        data_sources[data_sources_type] = [
+            resolve_data_source_path(base_path, entry) for entry in entries
+        ]
 
     return data_sources
 
 
-class ZarrEcgDataset(EcgDataset):
+class ZarrEcgDataset(EcgDataset if EcgDataset is not None else object):
     """
-    Custom ecglib.data.dataset.EcgDataset class to support zarr tis format
+    Custom ecglib.data.dataset.EcgDataset class to support filesystem-backed zarr ECG data.
 
     1. Load zarr.Directory store
     2. Overwrite `read_ecg_record` to zarr.load
@@ -112,6 +78,10 @@ class ZarrEcgDataset(EcgDataset):
         augmentation=None,
         path_to_zarr=None,
     ):
+        if EcgDataset is None:
+            raise RuntimeError(
+                "ecglib is required to use ZarrEcgDataset. Install it in your environment first."
+            )
         super().__init__(
             ecg_data,
             target,
@@ -128,6 +98,10 @@ class ZarrEcgDataset(EcgDataset):
         assert (
             self.data_type == "zarr"
         ), f"You can't use ZarrEcgDataset if `data_type` is not 'zarr', you provide: {self.data_type}"
+        if zarr is None:
+            raise RuntimeError(
+                "zarr is required to use ZarrEcgDataset. Install it in your environment first."
+            )
         store = zarr.DirectoryStore(path_to_zarr)
         self.root = zarr.open_group(store, mode="r")
 

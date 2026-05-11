@@ -8,7 +8,6 @@ from importlib.util import find_spec
 from pathlib import Path
 
 from ui.launcher import (
-    DEFAULT_MLFLOW_REMOTE_URI,
     build_command,
     build_mlflow_run_url,
     build_overrides,
@@ -65,7 +64,7 @@ class LauncherTests(unittest.TestCase):
             "federated_method": "fedavg",
             "client_selector": "uniform",
             "logger": "mlflow",
-            "mlflow_tracking_uri": "http://10.100.202.109:5000/",
+            "mlflow_tracking_uri": "http://mlflow.example.com:5000/",
             "mlflow_experiment_name": "exp_name",
         }
 
@@ -84,23 +83,22 @@ class LauncherTests(unittest.TestCase):
     def test_build_subprocess_env_adds_no_proxy_hosts(self) -> None:
         env, hosts = build_subprocess_env(
             disable_proxy=True,
-            mlflow_tracking_uri="http://10.100.202.109:5000/",
+            mlflow_tracking_uri="http://mlflow.example.com:5000/",
         )
 
-        self.assertIn("10.100.202.109", hosts)
-        self.assertIn("10.100.151.14", hosts)
-        self.assertIn("10.100.202.109", env["NO_PROXY"])
+        self.assertIn("mlflow.example.com", hosts)
+        self.assertIn("mlflow.example.com", env["NO_PROXY"])
         self.assertNotIn("HTTP_PROXY", env)
 
     def test_extract_mlflow_run_url_from_text(self) -> None:
         text = (
             "some text\n"
             "MLFLOW_RUN_ID=abc\n"
-            "MLFLOW_RUN_URL=http://10.100.202.109:5000/#/experiments/168/runs/abc\n"
+            "MLFLOW_RUN_URL=http://mlflow.example.com:5000/#/experiments/168/runs/abc\n"
         )
         self.assertEqual(
             extract_mlflow_run_url_from_text(text),
-            "http://10.100.202.109:5000/#/experiments/168/runs/abc",
+            "http://mlflow.example.com:5000/#/experiments/168/runs/abc",
         )
 
     def test_build_mlflow_run_url_from_base_ui_url(self) -> None:
@@ -122,13 +120,16 @@ class LauncherTests(unittest.TestCase):
     def test_infer_mlflow_target_detects_remote_and_local(self) -> None:
         self.assertEqual(
             infer_mlflow_target(
-                DEFAULT_MLFLOW_REMOTE_URI,
-                remote_tracking_uri=DEFAULT_MLFLOW_REMOTE_URI,
+                "http://mlflow.example.com:5000/",
+                remote_tracking_uri="http://mlflow.example.com:5000/",
             ),
             "remote",
         )
         self.assertEqual(
-            infer_mlflow_target("/tmp/mlruns", remote_tracking_uri=DEFAULT_MLFLOW_REMOTE_URI),
+            infer_mlflow_target(
+                "/tmp/mlruns",
+                remote_tracking_uri="http://mlflow.example.com:5000/",
+            ),
             "local",
         )
 

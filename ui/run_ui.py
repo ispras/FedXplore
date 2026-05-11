@@ -836,7 +836,7 @@ def get_option_sets(repo_root: Path) -> dict[str, list[str]]:
             discover_config_group_options(
                 repo_root, "dataset", exclude={"federated_dataset"}
             ),
-            ["cifar10", "cifar100", "ptbxl", "tiny_imagenet", "tis"],
+            ["cifar10", "cifar100", "ptbxl", "tiny_imagenet"],
         ),
         "distribution": pick_options(
             discover_config_group_options(repo_root, "distribution"),

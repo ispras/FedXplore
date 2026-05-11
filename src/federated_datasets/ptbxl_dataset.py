@@ -8,7 +8,7 @@ from ecglib.data.datasets import EcgDataset
 from ecglib.preprocessing.composition import Compose
 
 from .federated_dataset import FederatedDataset
-from utils.dataset_utils import get_target_dir, set_data_configs, save_map_files
+from utils.dataset_utils import get_target_dir, save_map_files
 
 
 class PTBXLDataset(FederatedDataset):
@@ -49,16 +49,6 @@ class PTBXLDataset(FederatedDataset):
         ):
             self.dataset_cfg = cfg.train_dataset.dataset_cfg
 
-        # PRIVATE part of code due to server shared paths
-        self.shared_path = (
-            "ecg_data/physionet_data/ptbxl_data_1_0_3"
-            in data_sources[f"train_map_file"][0]
-        )
-        if self.shared_path and self.dataset_cfg.frequency == 100:
-            assert (
-                "ptbxl_data_sf100" in data_sources[f"{mode}_map_file"][0]
-            ), f"With server shared paths sample frequency 100 placed in `ecg_data/physionet_data/ptbxl_data_sf100/`, you provided: {data_sources[f'{mode}_map_file'][0]}"
-
         super().__init__(cfg, mode, data_sources, base_path)
         if self.mode != "train":
             self.init_ecg_dataset()
@@ -97,8 +87,6 @@ class PTBXLDataset(FederatedDataset):
         train_df = ptbxl_df[ptbxl_df["strat_fold"] != 10]
         test_df = ptbxl_df[ptbxl_df["strat_fold"] == 10]
         save_map_files(train_df, test_df, self.target_dir)
-        # 4. Update paths in yaml config
-        set_data_configs(self.target_dir, config_names=["ptbxl.yaml"])
 
     def preprocessing(self):
         if self.loading_mode == "trust":
@@ -123,12 +111,17 @@ class PTBXLDataset(FederatedDataset):
         self.data = self.data[self.data[self.dataset_cfg.task_type].notna()]
         # Remove artefact file
         suffix = "lr" if self.dataset_cfg.frequency == 100 else "hr"
-        # PRIVATE part of code
-        if self.shared_path:
-            self.data = self.data[self.data["file_name"] != f"12000_12722_{suffix}.npz"]
-        else:
+        artifact_file_name = f"12000_12722_{suffix}.npz"
+        artifact_relative_path = f"records100/12000/12722_{suffix}"
+        if "file_name" in self.data.columns:
+            self.data = self.data[self.data["file_name"] != artifact_file_name]
+        if f"filename_{suffix}" in self.data.columns:
             self.data = self.data[
-                self.data[f"filename_{suffix}"] != f"records100/12000/12722_{suffix}"
+                self.data[f"filename_{suffix}"] != artifact_relative_path
+            ]
+        if "fpath" in self.data.columns:
+            self.data = self.data[
+                ~self.data["fpath"].astype(str).str.endswith(artifact_file_name)
             ]
 
         # 3. Use only trusted labels

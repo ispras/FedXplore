@@ -58,7 +58,10 @@ python src/train.py training_params.batch_size=32 federated_params.print_client_
 
 This type of logging inherits from the Base logger. Therefore, it keeps prints, creates an experiment report, and redirects the output.
 
-In addition, it logs information to MLFlow. By default, our private server is used ([http://10.100.202.109:5000/#/experiments](http://10.100.202.109:5000/#/experiments)).
+In addition, it logs information to MLFlow.
+
+If `logger.tracking_uri` is not set, MLFlow uses its default local store.
+If you want to log to a remote server, set `logger.tracking_uri=<your_mlflow_uri>` explicitly and configure any required credentials in your environment.
 
 MLFlow stores experiments in the following structure: experiment_name/run_name. Both parts of the name can be configured via Hydra.
 

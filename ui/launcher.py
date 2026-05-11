@@ -26,8 +26,7 @@ except ImportError:  # pragma: no cover - exercised only in bare environments
 
 RUNS_RELATIVE_DIR = Path("outputs/ui/runs")
 DEFAULT_RUN_NAME = "fedxplore_run"
-DEFAULT_MLFLOW_REMOTE_URI = "http://10.100.202.109:5000/"
-DEFAULT_MLFLOW_AWS_ENDPOINT = "http://10.100.151.14:9000"
+DEFAULT_MLFLOW_REMOTE_URI = ""
 DEFAULT_LOCAL_MLFLOW_UI_URL = "http://127.0.0.1:5000/"
 STOP_TERM_RETRY_SECONDS = 6
 STOP_FORCE_KILL_SECONDS = 18
@@ -363,9 +362,7 @@ def get_mlflow_defaults(repo_root: Path) -> dict[str, str]:
     except RuntimeError:
         config_values = {}
     env_tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "").strip()
-    remote_tracking_uri = (
-        str(config_values.get("tracking_uri", "")).strip() or DEFAULT_MLFLOW_REMOTE_URI
-    )
+    remote_tracking_uri = str(config_values.get("tracking_uri", "") or "").strip()
     tracking_uri = env_tracking_uri or remote_tracking_uri
     experiment_name = str(config_values.get("experiment_name", "")).strip()
     return {
@@ -388,7 +385,7 @@ def infer_mlflow_target(
     remote_tracking_uri: str | None = None,
 ) -> str:
     candidate = (tracking_uri or "").strip().rstrip("/")
-    remote_candidate = (remote_tracking_uri or DEFAULT_MLFLOW_REMOTE_URI).strip().rstrip("/")
+    remote_candidate = (remote_tracking_uri or "").strip().rstrip("/")
     if candidate and candidate == remote_candidate:
         return "remote"
     if candidate.startswith(("http://", "https://")):
@@ -457,7 +454,7 @@ def build_subprocess_env(
     if tracking_host:
         bypass_hosts.append(tracking_host)
 
-    aws_endpoint = env.get("AWS_ENDPOINT_URL") or DEFAULT_MLFLOW_AWS_ENDPOINT
+    aws_endpoint = env.get("AWS_ENDPOINT_URL", "").strip()
     aws_host = extract_host_from_url(aws_endpoint)
     if aws_host:
         bypass_hosts.append(aws_host)

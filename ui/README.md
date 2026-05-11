@@ -112,7 +112,7 @@ Inside that directory the UI keeps:
 If `logger=mlflow` is selected, the UI can:
 
 - switch between remote tracking and a local file-backed store at `outputs/mlruns`
-- prefill the remote tracking URI from the repo config
+- prefill the remote tracking URI from the repo config or environment when available
 - store an MLflow run link with the run when the logger reports it
 - start a local `mlflow ui` automatically on the first `MLflow` click for a given store
 - reuse that local MLflow UI process for the same store on later clicks

@@ -102,20 +102,15 @@ class MLFlowLogger(BaseLogger):
         run_name,
     ):
         super().__init__(run_dir)
-        self.tracking_uri = str(tracking_uri)
+        self.tracking_uri = "" if tracking_uri in {None, "", "null"} else str(tracking_uri).strip()
         self.experiment_name = experiment_name
         self.run_name = run_name
-        if self.tracking_uri.startswith("http://"):
-            assert (
-                self.tracking_uri == "http://10.100.202.109:5000/"
-            ), f"We support only http://10.100.202.109:5000/ remote storage location, you provide: {self.tracking_uri}"
-            if not self.aws_credentials_present():
-                warnings.warn("aws credentials not set up. We set it manually")
-                self.set_up_aws_credentials()
         self.init_mlflow()
 
     def init_mlflow(self):
-        mlflow.set_tracking_uri(self.tracking_uri)
+        if self.tracking_uri:
+            mlflow.set_tracking_uri(self.tracking_uri)
+        self.tracking_uri = mlflow.get_tracking_uri()
         experiment = mlflow.set_experiment(self.experiment_name)
         if experiment is None:
             experiment = mlflow.get_experiment_by_name(self.experiment_name)
@@ -218,19 +213,3 @@ class MLFlowLogger(BaseLogger):
             # Save model info
             torch.save(self.state, self.checkpoint_path)
         mlflow.end_run()
-
-    def aws_credentials_present(self):
-        env_ok = bool(
-            os.environ.get("AWS_ACCESS_KEY_ID")
-            and os.environ.get("AWS_SECRET_ACCESS_KEY")
-            and os.environ.get("AWS_ENDPOINT_URL")
-        )
-        cred_file = os.path.exists(
-            os.path.expanduser("~/.aws/credentials")
-        ) or os.path.exists(os.path.expanduser("~/.aws/config"))
-        return env_ok or cred_file
-
-    def set_up_aws_credentials(self):
-        os.environ["AWS_ACCESS_KEY_ID"] = "ecgadmin"
-        os.environ["AWS_SECRET_ACCESS_KEY"] = "d3po6901"
-        os.environ["AWS_ENDPOINT_URL"] = "http://10.100.151.14:9000"
