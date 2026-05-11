@@ -187,6 +187,11 @@ CREATE_STEP_LABELS = {
     "launch": "9. Launch",
 }
 
+BRAND_FED_COLOR = "rgb(44, 125, 160)"
+BRAND_XPLORE_COLOR = "rgb(255, 102, 102)"
+APP_BACKGROUND_COLOR = "#B9E0A5"
+APP_TEXT_COLOR = "#173456"
+
 
 def rerun_app() -> None:
     if hasattr(st, "rerun"):
@@ -225,6 +230,59 @@ def install_keyboard_guard() -> None:
               event.stopImmediatePropagation();
             }
           }, true);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def brand_markup(*, suffix: str = "", level: int = 2) -> str:
+    safe_level = min(max(level, 1), 6)
+    suffix_html = f" <span class='fx-brand-suffix'>{suffix}</span>" if suffix else ""
+    return (
+        f"<h{safe_level} class='fx-brand-title'>"
+        f"<span class='fx-brand-fed'>Fed</span>"
+        f"<span class='fx-brand-xplore'>Xplore</span>"
+        f"{suffix_html}"
+        f"</h{safe_level}>"
+    )
+
+
+def install_button_palette_hook() -> None:
+    components.html(
+        """
+        <script>
+        (function () {
+          const rootDoc = window.parent.document;
+          const labelsToClass = {
+            "Dashboard": "fx-button-dashboard",
+            "Create Run": "fx-button-create-run",
+            "Load": "fx-button-fed",
+            "Reset": "fx-button-fed",
+            "Next": "fx-button-fed",
+            "Back": "fx-button-fed"
+          };
+
+          const syncButtonClasses = function () {
+            rootDoc.querySelectorAll("button").forEach(function (button) {
+              button.classList.remove(
+                "fx-button-dashboard",
+                "fx-button-create-run",
+                "fx-button-fed"
+              );
+              const label = (button.innerText || button.textContent || "").trim();
+              const className = labelsToClass[label];
+              if (className) {
+                button.classList.add(className);
+              }
+            });
+          };
+
+          syncButtonClasses();
+          window.setTimeout(syncButtonClasses, 150);
+          window.setTimeout(syncButtonClasses, 500);
         })();
         </script>
         """,
@@ -412,8 +470,7 @@ def restore_view_from_query_params() -> None:
 
 
 def apply_page_styles() -> None:
-    st.markdown(
-        """
+    css = """
         <style>
         header[data-testid="stHeader"] {
             display: none;
@@ -422,29 +479,59 @@ def apply_page_styles() -> None:
             display: none;
         }
         .stApp {
-            background: linear-gradient(180deg, #f6fbff 0%, #ffffff 24%);
-            color: #173456;
+            background: __APP_BACKGROUND_COLOR__;
+            color: __APP_TEXT_COLOR__;
         }
         .main .block-container {
             padding-top: 0.05rem !important;
             padding-bottom: 1rem;
             max-width: 1500px;
         }
+        .fx-brand-title {
+            margin: 0;
+            line-height: 1.1;
+            font-weight: 800;
+        }
+        .fx-brand-fed {
+            color: __BRAND_FED_COLOR__;
+        }
+        .fx-brand-xplore {
+            color: __BRAND_XPLORE_COLOR__;
+        }
+        .fx-brand-suffix {
+            color: __APP_TEXT_COLOR__;
+        }
         [data-testid="stSidebar"] {
-            background: #ffffff;
-            border-right: 1px solid #d8e7fb;
+            background: __APP_BACKGROUND_COLOR__;
+            border-right: 1px solid rgba(23, 52, 86, 0.14);
         }
         .stButton > button {
-            background: linear-gradient(135deg, #2d6df6 0%, #4a8aff 100%);
+            background: __BRAND_FED_COLOR__;
             color: white;
             border: 0;
             border-radius: 12px;
             font-weight: 600;
             min-height: 2.65rem;
-            box-shadow: 0 10px 26px rgba(45, 109, 246, 0.14);
+            box-shadow: 0 10px 26px rgba(44, 125, 160, 0.24);
         }
         .stButton > button:hover {
             filter: brightness(1.02);
+        }
+        .stButton > button.fx-button-dashboard {
+            background: __BRAND_FED_COLOR__ !important;
+            box-shadow: 0 10px 26px rgba(44, 125, 160, 0.24);
+        }
+        .stButton > button.fx-button-create-run {
+            background: __BRAND_XPLORE_COLOR__ !important;
+            box-shadow: 0 10px 26px rgba(255, 102, 102, 0.24);
+        }
+        .stButton > button.fx-button-fed {
+            background: __BRAND_FED_COLOR__ !important;
+            box-shadow: 0 10px 26px rgba(44, 125, 160, 0.24);
+        }
+        [data-testid="stSidebar"] .stButton > button.fx-button-dashboard,
+        [data-testid="stSidebar"] .stButton > button.fx-button-create-run {
+            color: white !important;
         }
         .fx-topline {
             display: flex;
@@ -454,19 +541,19 @@ def apply_page_styles() -> None:
             margin-bottom: 0.35rem;
         }
         .fx-card {
-            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-            border: 1px solid #d7e6fb;
+            background: __APP_BACKGROUND_COLOR__;
+            border: 1px solid rgba(23, 52, 86, 0.14);
             border-radius: 16px;
             padding: 0.95rem 1rem;
-            box-shadow: 0 8px 26px rgba(25, 79, 173, 0.06);
+            box-shadow: none;
         }
         .fx-card-label {
-            color: #5b7ea7;
+            color: __APP_TEXT_COLOR__;
             font-size: 0.84rem;
             margin-bottom: 0.35rem;
         }
         .fx-card-value {
-            color: #173456;
+            color: __APP_TEXT_COLOR__;
             font-size: 1.65rem;
             font-weight: 700;
             line-height: 1.05;
@@ -615,7 +702,15 @@ def apply_page_styles() -> None:
             padding-bottom: 0.15rem;
         }
         </style>
-        """,
+    """
+    css = (
+        css.replace("__APP_BACKGROUND_COLOR__", APP_BACKGROUND_COLOR)
+        .replace("__APP_TEXT_COLOR__", APP_TEXT_COLOR)
+        .replace("__BRAND_FED_COLOR__", BRAND_FED_COLOR)
+        .replace("__BRAND_XPLORE_COLOR__", BRAND_XPLORE_COLOR)
+    )
+    st.markdown(
+        css,
         unsafe_allow_html=True,
     )
 
@@ -1039,7 +1134,7 @@ def resolve_template_key(raw_value: str, templates: dict[str, TemplateSpec]) -> 
 
 def render_sidebar() -> None:
     with st.sidebar:
-        st.markdown("## FedXplore")
+        st.markdown(brand_markup(level=2), unsafe_allow_html=True)
         if st.button("Dashboard", key="sidebar_dashboard", use_container_width=True):
             navigate_to(VIEW_DASHBOARD)
             rerun_app()
@@ -1162,7 +1257,7 @@ def format_rel_path(repo_root: Path, path_value: str | Path) -> str:
 
 
 def render_dashboard_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
-    st.title("FedXplore Dashboard")
+    st.markdown(brand_markup(suffix="Dashboard", level=1), unsafe_allow_html=True)
 
     total_runs = len(runs)
     running_runs = sum(1 for run in runs if run.get("status") == "running")
@@ -2100,6 +2195,7 @@ def main() -> None:
     )
     install_keyboard_guard()
     apply_page_styles()
+    install_button_palette_hook()
 
     try:
         repo_root = get_repo_root(Path(__file__).resolve())
