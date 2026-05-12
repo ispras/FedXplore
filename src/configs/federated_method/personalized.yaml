@@ -1,11 +1,4 @@
 _target_: federated_methods.personalized.fedavg.PerFedAvg
-strategy: base # base, sharded
-cluster_params: null
+strategy: base # base, sharded, filter. See strategy.py for details
 ckpt_path: null
 server_test: False
-
-# For sharded strategy
-# strategy: sharded
-# Еhe first number shows the number of shards 
-# and the second number shows the percentage of the dominant class
-# cluster_params: [10, 0.5]

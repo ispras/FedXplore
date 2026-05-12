@@ -1,2 +1,2 @@
 _target_: client_selectors.pow.Pow
-candidate_set_size: 10
+candidate_set_size: 15

@@ -25,5 +25,5 @@ class AutoBANT(ByzantineBase):
         super()._init_server(cfg)
         self.server = AutoBANTServer(cfg, self.trust_df, *self.opt_params)
 
-    def count_trust_scores(self):
+    def calculate_aggregation_weights(self):
         return self.server._count_trust_score()

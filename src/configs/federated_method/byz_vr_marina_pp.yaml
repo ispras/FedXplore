@@ -1,0 +1,6 @@
+_target_: federated_methods.byz_vr_marina_pp.byz_vr_marina_pp.ByzVRMarinaPP
+p: 0.05
+global_lr: 1
+lambda_: 1
+aggregation_type: "CM" # "CM", "RFA"
+bucket_size: 3 # For RFA aggregation

@@ -1,6 +1,5 @@
 _target_: federated_methods.fedrep.fedrep.FedRep
-strategy: base # base, sharded
-cluster_params: null
+strategy: base # base, sharded, filter. See strategy.py for details
 ckpt_path: null
 server_test: False
 

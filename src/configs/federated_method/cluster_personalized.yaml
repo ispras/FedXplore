@@ -1,0 +1,5 @@
+_target_: federated_methods.cluster_personalized.fedavg.ClusterPersonalized
+strategy: sharded # base, sharded
+ckpt_path: null
+server_test: False
+cluster_num: null

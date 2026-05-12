@@ -1,15 +1,14 @@
 import torch
-import numpy as np
-from ..base.base import Base
+
+from ..fedavg.fedavg import FedAvg
 from .client import PerClient
 from .server import PerServer
 from .strategy import *
 
 
-class PerFedAvg(Base):
-    def __init__(self, strategy, cluster_params, ckpt_path, server_test):
+class PerFedAvg(FedAvg):
+    def __init__(self, strategy, ckpt_path, server_test):
         self.strategy = strategy
-        self.cluster_params = np.array(cluster_params)
         self.ckpt_path = ckpt_path
         self.server_test = server_test
         super().__init__()
@@ -33,10 +32,13 @@ class PerFedAvg(Base):
         self.num_clients = self.cfg.federated_params.amount_of_clients
         match self.strategy:
             case "sharded":
-                self.strategy = ShardedStrategy(self.cluster_params)
+                self.strategy = ShardedStrategy()
 
             case "base":
                 self.strategy = BaseStrategy()
+
+            case "filter":
+                self.strategy = FilterStrategy()
 
             case _:
                 raise ValueError(f"No such cluster split type {self.strategy}")
@@ -56,18 +58,5 @@ class PerFedAvg(Base):
 
         # In we need additionaly send client cluster strategy
         content = super().get_communication_content(rank)
-        content["strategy"] = self.clients_strategy[rank]
+        content["strategy"] = self.strategy.get_client_payload(rank)
         return content
-
-    def parse_communication_content(self, client_result):
-        # In fedavg we recive result_dict from every client
-        self.server.set_client_result(client_result)
-        print(f"Client {client_result['rank']} finished in {client_result['time']}")
-        if self.cfg.federated_params.print_client_metrics:
-            # client_result['client_metrics'] = (loss, metrics)
-            client_loss, client_metrics = (
-                client_result["client_metrics"][0],
-                client_result["client_metrics"][1],
-            )
-            print(client_metrics)
-            print(f"Validation loss: {client_loss}\n")

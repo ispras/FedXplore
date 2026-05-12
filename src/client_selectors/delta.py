@@ -15,7 +15,7 @@ class Delta(BaseSelector):
         self.alpha_1 = alpha_1
         self.alpha_2 = alpha_2
 
-    def select_clients_to_train(self, num_clients_subset, server_sampling=False):
+    def select_clients_to_train(self, num_clients_subset):
         if num_clients_subset == self.amount_of_clients:
             return list(range(self.amount_of_clients))
 

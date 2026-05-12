@@ -1,0 +1,6 @@
+_target_: distributions.sharded.ShardedDistribution
+n_clusters: 10 # number of shards
+dominant_ratio: 0.7 # percentage of the dominant classes relative to the total number of local client samples in the shard
+num_dominants: 1 # number of dominant classes in each shard
+num_connected_clusters: -1 # number of connected clusters, -1 means all clusters are connected
+verbose: True # whether to print the distribution details

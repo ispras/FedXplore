@@ -1,33 +1,23 @@
 import hydra
-import signal
 from omegaconf import DictConfig
 from hydra.utils import instantiate
 
-from utils.utils import handle_main_process_sigterm
-from utils.logging_utils import redirect_stdout_to_log
+from utils.process_utils import errors_parent_handler
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="config")
+@hydra.main(version_base=None, config_path="../configs", config_name="config")
+@errors_parent_handler
 def train(cfg: DictConfig):
-    redirect_stdout_to_log()
-
-    # Init train dataset
-    df = instantiate(cfg.train_dataset, cfg=cfg, mode="train", _recursive_=False)
-    cfg = df.get_cfg()
 
     # Init federated_method
     trainer = instantiate(cfg.federated_method, _recursive_=False)
-    trainer._init_federated(cfg, df)
+    trainer._init_federated(cfg)
 
     # Add client selection strategy
-    client_selector = instantiate(cfg.client_selector, cfg=cfg, _recursive_=False)
-    trainer = client_selector(trainer)
-
-    # Termination handling in multiprocess setup
-    signal.signal(
-        signal.SIGTERM,
-        lambda signum, frame: handle_main_process_sigterm(signum, frame, trainer),
+    client_selector = instantiate(
+        trainer.cfg.client_selector, cfg=trainer.cfg, _recursive_=False
     )
+    trainer = client_selector(trainer)
 
     trainer.begin_train()
 

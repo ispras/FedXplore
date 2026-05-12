@@ -2,13 +2,13 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from ..base.base_server import BaseServer
+from ..fedavg.fedavg_server import FedAvgServer
 from utils.losses import get_loss
 from utils.data_utils import get_dataset_loader
 from .autobant_models import AutoBANTModel2d, AutoBANTModel1d
 
 
-class AutoBANTServer(BaseServer):
+class AutoBANTServer(FedAvgServer):
     def __init__(
         self,
         cfg,
@@ -45,6 +45,7 @@ class AutoBANTServer(BaseServer):
             loss_cfg=self.cfg.loss,
             device=self.device,
             df=self.trust_df,
+            num_classes=self.cfg.training_params.num_classes,
         )
 
     def _init_trust_model(self):

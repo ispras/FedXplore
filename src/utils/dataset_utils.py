@@ -1,5 +1,14 @@
 import os
-import yaml
+from pathlib import Path
+
+try:
+    import zarr
+except ImportError:  # pragma: no cover - optional dependency
+    zarr = None
+try:
+    from ecglib.data.datasets import EcgDataset
+except ImportError:  # pragma: no cover - optional dependency
+    EcgDataset = None
 
 
 def get_target_dir(cfg, default_dir="cifar10"):
@@ -19,39 +28,83 @@ def save_map_files(train_df, test_df, target_dir):
     test_df.to_csv(os.path.join(target_dir, "test_map_file.csv"), index=False)
 
 
-def set_data_configs(target_path, config_names=["cifar10.yaml"]):
-    print("Setting paths to .yaml files...\n")
-    # HARDCODE paths
-    config_dir = "src/configs/dataset/"
-    if not os.path.isdir(config_dir):
-        print(
-            f"Directory {config_dir} not found. Set paths inside .yaml configs manually"
-        )
-        return
+def resolve_data_source_path(base_path, entry):
+    candidate = Path(str(entry)).expanduser()
+    if candidate.is_absolute():
+        return str(candidate)
 
-    if not os.path.isabs(target_path):
-        curent_run_path = os.getcwd()
-        target_path = os.path.join(curent_run_path, target_path)
+    root = Path(str(base_path)).expanduser()
+    if not root.is_absolute():
+        root = Path.cwd() / root
+    return str((root / candidate).resolve())
 
-    for filename in os.listdir(config_dir):
-        if filename not in config_names:
+
+def update_data_sources(base_path, data_sources):
+    # Normalize relative data-source paths against `base_path`.
+    # Absolute paths are preserved as-is.
+    for data_sources_type in list(data_sources.keys()):
+        entries = data_sources[data_sources_type]
+        if entries is None:
             continue
+        if isinstance(entries, str):
+            entries = [entries]
+        data_sources[data_sources_type] = [
+            resolve_data_source_path(base_path, entry) for entry in entries
+        ]
 
-        filepath = os.path.join(config_dir, filename)
-        with open(filepath, "r") as f:
-            data = yaml.safe_load(f)
+    return data_sources
 
-        data_sources = data.get("data_sources", {})
 
-        if "test_map_file" in data_sources:
-            test_map_path = [os.path.join(target_path, "test_map_file.csv")]
-            data_sources["test_map_file"] = test_map_path
+class ZarrEcgDataset(EcgDataset if EcgDataset is not None else object):
+    """
+    Custom ecglib.data.dataset.EcgDataset class to support filesystem-backed zarr ECG data.
 
-        if "train_map_file" in data_sources:
-            train_map_path = [os.path.join(target_path, "train_map_file.csv")]
-            data_sources["train_map_file"] = train_map_path
+    1. Load zarr.Directory store
+    2. Overwrite `read_ecg_record` to zarr.load
+    """
 
-        data["data_sources"] = data_sources
+    def __init__(
+        self,
+        ecg_data,
+        target,
+        frequency=500,
+        leads=...,
+        data_type="wfdb",
+        ecg_length=10,
+        cut_range=...,
+        pad_mode="constant",
+        norm_type="z_norm",
+        classes=2,
+        augmentation=None,
+        path_to_zarr=None,
+    ):
+        if EcgDataset is None:
+            raise RuntimeError(
+                "ecglib is required to use ZarrEcgDataset. Install it in your environment first."
+            )
+        super().__init__(
+            ecg_data,
+            target,
+            frequency,
+            leads,
+            data_type,
+            ecg_length,
+            cut_range,
+            pad_mode,
+            norm_type,
+            classes,
+            augmentation,
+        )
+        assert (
+            self.data_type == "zarr"
+        ), f"You can't use ZarrEcgDataset if `data_type` is not 'zarr', you provide: {self.data_type}"
+        if zarr is None:
+            raise RuntimeError(
+                "zarr is required to use ZarrEcgDataset. Install it in your environment first."
+            )
+        store = zarr.DirectoryStore(path_to_zarr)
+        self.root = zarr.open_group(store, mode="r")
 
-        with open(filepath, "w") as f:
-            yaml.dump(data, f, default_flow_style=False)
+    def read_ecg_record(self, file_path, data_type):
+        ecg_record = self.root[file_path][...].astype("float64")
+        return ecg_record

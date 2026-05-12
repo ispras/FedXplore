@@ -18,4 +18,6 @@ dataset_cfg:
   task_type: scp_codes
   norm_type: z_norm
   validated_by_human: false
+  use_metadata: false
+base_path: 'data'
 mode: train

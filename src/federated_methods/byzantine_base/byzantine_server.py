@@ -1,8 +1,8 @@
-from ..base.base_server import BaseServer
+from ..fedavg.fedavg_server import FedAvgServer
 from utils.data_utils import get_dataset_loader
 
 
-class ByzantineBaseServer(BaseServer):
+class ByzantineBaseServer(FedAvgServer):
     "Abstract Server class for Byzantine-resilient based methods. It adds trust dataset"
 
     def __init__(self, cfg, trust_df=None):

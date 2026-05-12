@@ -17,6 +17,10 @@ Main configuration file `config.yaml` contains:
     - `optimizer`: Type of client optimizer, e.g. `adam`, `sgd` or any existing optimization scheme.
     - `preaggregator`: Methods for modifying client gradients before aggregation. Used in Byzantine setups.
 
+Dataset configs in `src/configs/dataset/` keep `data_sources.*_map_file: null` by default.
+For datasets with built-in download support, this triggers automatic download/preparation on first run.
+For custom datasets, set the required map-file paths explicitly.
+
 - `random_state`: Sets reproducibility
 - `training_params`
     - `batch_size`: client batch size

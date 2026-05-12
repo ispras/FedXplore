@@ -1,0 +1,24 @@
+name: Byzantine Label Flip
+description: Central-clip CIFAR-10 setup with label-flip attack selection and base attack scheduling controls.
+form:
+  run_name: byz_label_flip_central_clip
+  random_state: 41
+  communication_rounds: 50
+  dataset: cifar10
+  trust_dataset: ""
+  distribution: dirichlet
+  distribution_alpha: 0.5
+  amount_of_clients: 25
+  client_subset_size: 5
+  training_batch_size: 64
+  manager_batch_size: 5
+  device_mode: gpu
+  device_ids: "[0]"
+  print_client_metrics: false
+  federated_method: central_clip
+  client_selector: pow
+  logger: base
+  model: resnet18
+  model_trainer: image
+  optimizer: sgd
+  attack_type: label_flip

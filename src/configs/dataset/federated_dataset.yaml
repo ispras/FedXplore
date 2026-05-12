@@ -10,4 +10,5 @@ data_sources:
   train_map_file: null # null or bullet list with paths
   test_map_file: null # null or bullet list with paths
 
+base_path: 'data' # need to move between different servers with various parent folder structure
 mode: "train" # "train", "test" # The mode will be selected upon creation.

@@ -2,4 +2,5 @@ _target_: federated_datasets.tiny_imagenet.TinyImageNet
 data_sources:
   test_map_file: null
   train_map_file: null
+base_path: 'data'
 mode: train

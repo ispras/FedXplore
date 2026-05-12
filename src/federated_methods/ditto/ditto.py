@@ -4,8 +4,8 @@ from ..ditto.ditto_server import DittoServer
 
 
 class Ditto(PerFedAvg):
-    def __init__(self, strategy, cluster_params, ckpt_path, server_test, proximity):
-        super().__init__(strategy, cluster_params, ckpt_path, server_test)
+    def __init__(self, strategy, ckpt_path, server_test, proximity):
+        super().__init__(strategy, ckpt_path, server_test)
         self.proximity = proximity
 
     def _init_server(self, cfg):

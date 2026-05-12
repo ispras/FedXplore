@@ -1,4 +1,4 @@
-name: "dirichlet_multilabel"
+_target_: distributions.dirichlet_multilabel.DirichletMultilabelDistribution
 alpha: 0.1
 verbose: True
 min_sample_number: 20 # for highly heterogeneous cases, defines the minimum number of samples per client.

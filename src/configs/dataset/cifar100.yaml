@@ -1,0 +1,6 @@
+_target_: federated_datasets.cifar100_dataset.Cifar100Dataset
+base_path: data
+data_sources:
+  test_map_file: null
+  train_map_file: null
+mode: train

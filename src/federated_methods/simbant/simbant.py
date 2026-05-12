@@ -24,7 +24,7 @@ class SimBANT(ByzantineBase):
         )
         self.num_clients = len(self.server.client_gradients)
 
-    def count_trust_scores(self):
+    def calculate_aggregation_weights(self):
         targets, server_probs, clients_probs = self.server.trust_eval_models()
         trust_scores = self.bant_similarity(targets, server_probs, clients_probs)
         return trust_scores

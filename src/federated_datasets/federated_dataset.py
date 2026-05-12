@@ -1,19 +1,31 @@
 import os
 import warnings
+import copy
 import numpy as np
 import pandas as pd
 from omegaconf import open_dict
 from torch.utils.data import Dataset
-from utils.data_utils import create_dirichlet_df, train_val_split
+from hydra.utils import instantiate
+from sklearn.model_selection import train_test_split
+from hydra.core.hydra_config import HydraConfig
+
+from utils.dataset_utils import update_data_sources
 
 
 class FederatedDataset(Dataset):
-    def __init__(self, cfg, mode, data_sources):
+    def __init__(self, cfg, mode, data_sources, base_path):
         super().__init__()
         self.cfg = cfg
         self.mode = mode
-        self.distribution = cfg.distribution
+        self.distribution = instantiate(cfg.distribution)
         self.data_sources = data_sources
+
+        assert (
+            base_path == cfg.train_dataset.base_path
+        ), f"We need to duplicate `base_path` changes to all considering datasets. You {self.mode} dataset contains base_path={base_path}"
+
+        if self.df_exist():
+            self.data_sources = update_data_sources(base_path, data_sources)
         self.name = self.__class__.__name__
         self.init_df()
 
@@ -21,6 +33,7 @@ class FederatedDataset(Dataset):
         if not self.df_exist():
             self.downloading()
 
+        self.loading_mode = self.get_loading_mode()
         self.data = self.load_map_files()
         self.preprocessing()
 
@@ -30,8 +43,6 @@ class FederatedDataset(Dataset):
         self.define_num_classes()
 
         if self.mode == "train":
-            print(f"Used distribution is: {self.distribution.name}")
-            print(f"Full params: {self.distribution}\n")
             self.split_to_clients()
 
         # Save original df, we will use it after reinit on client side
@@ -62,6 +73,34 @@ class FederatedDataset(Dataset):
             self.cfg.train_dataset.data_sources.train_map_file = [train_map_path]
             self.cfg.test_dataset.data_sources.test_map_file = [test_map_path]
 
+    def get_loading_mode(self):
+        loading_mode = self.mode
+
+        if self.mode == "trust":
+            if "trust_map_file" in self.cfg.trust_dataset.data_sources:
+                loading_mode = "trust"
+            else:
+                if hasattr(self.cfg.trust_dataset, "trust_base_data_part"):
+                    self.trust_base_data_part = (
+                        self.cfg.trust_dataset.trust_base_data_part
+                    )
+                else:
+                    print(f"We will use train as trust dataset by default.")
+                    print(
+                        f"You can configure this by setting `+trust_dataset.trust_base_data_part=<train/test>`\n"
+                    )
+                    self.trust_base_data_part = "train"
+
+                loading_mode = self.trust_base_data_part
+        return loading_mode
+
+    def load_map_files(self):
+        df = pd.DataFrame()
+        for directories in self.data_sources[f"{self.loading_mode}_map_file"]:
+            df = pd.concat([df, pd.read_csv(directories, low_memory=False)])
+
+        return df
+
     def parse_trust(self):
         # Parse trust dataset case (additionaly data on server side)
         if self.cfg.train_dataset["_target_"] == self.cfg.trust_dataset["_target_"]:
@@ -76,13 +115,6 @@ class FederatedDataset(Dataset):
                 # Which part to use will configure in get_separate_trust_df
                 return self.separate_trust_df()
 
-    def load_map_files(self):
-        df = pd.DataFrame()
-        for directories in self.data_sources[f"{self.mode}_map_file"]:
-            df = pd.concat([df, pd.read_csv(directories, low_memory=False)])
-
-        return df
-
     def repeating_trust_df(self):
         # Load all train data
         df = self.data
@@ -95,48 +127,56 @@ class FederatedDataset(Dataset):
         if "num_trust_samples" in self.cfg.trust_dataset:
             num_trust_samples = self.cfg.trust_dataset.num_trust_samples
         else:
-            if self.mode == "train":  # print once
-                print(f"We will trust dataset with {num_trust_samples} by default.")
-                print(
-                    f"You can configure this number by setting `+trust_dataset.num_trust_samples=number`\n"
-                )
+            print(f"We will trust dataset with {num_trust_samples} by default.")
+            print(
+                f"You can configure this number by setting `+trust_dataset.num_trust_samples=number`\n"
+            )
 
-        train_val_prop = num_trust_samples / len(df)
+        val_prop = num_trust_samples / len(df)
 
-        train_df, trust_df = train_val_split(
-            df, train_val_prop, random_state=self.cfg.random_state
+        train_df, trust_df = self.train_val_split(
+            df, val_prop, random_state=self.cfg.random_state
         )
 
         # Setup save directory
-        save_dir = os.path.dirname(self.data_sources["train_map_file"][0])
-
-        # Save new train map file
-        save_path = os.path.join(save_dir, "train_without_trust_map_file.csv")
-        train_df.to_csv(save_path)
-        with open_dict(self.cfg):
-            self.cfg.train_dataset.data_sources.train_map_file = [save_path]
-
-        # Update train paths in this instantiated class
-        self.data_sources.train_map_file = [save_path]
+        save_dir = HydraConfig.get().runtime.output_dir
 
         # Save new trust map file
         save_path = os.path.join(save_dir, "trust_map_file.csv")
         trust_df.to_csv(save_path)
+        print(f"New trust map-file saved in: {save_path}\n")
+
         with open_dict(self.cfg):
             self.cfg.trust_dataset.data_sources.trust_map_file = [save_path]
 
         self.data = train_df
 
     def separate_trust_df(self):
-        warnings.warn(
-            f"As trust dataset used train part of data "
-            f"To change this behavior, rewrite the function "
-            f"get_separate_trust_df in {self.name} dataset"
+        df = self.data
+        num_trust_samples = 500
+        if "num_trust_samples" in self.cfg.trust_dataset:
+            num_trust_samples = self.cfg.trust_dataset.num_trust_samples
+        else:
+            print(f"We will trust dataset with {num_trust_samples} by default.")
+            print(
+                f"You can configure this number by setting `+trust_dataset.num_trust_samples=number`\n"
+            )
+
+        train_val_prop = num_trust_samples / len(df)
+
+        _, trust_df = self.train_val_split(
+            df, train_val_prop, random_state=self.cfg.random_state
         )
 
-        # Basically we will use the train part of our dataset as trust
-        # But you can configure this separately for each dataset
-        self.mode = "train"
+        # Save new trust map file
+        save_dir = HydraConfig.get().runtime.output_dir
+        save_path = os.path.join(save_dir, "trust_map_file.csv")
+        print(f"New trust map-file saved in: {save_path}\n")
+        trust_df.to_csv(save_path)
+        with open_dict(self.cfg):
+            self.cfg.trust_dataset.data_sources.trust_map_file = [save_path]
+
+        self.data = trust_df
 
     def preprocessing(self):
         pass
@@ -161,32 +201,78 @@ class FederatedDataset(Dataset):
                 self.cfg.model.num_classes = self.num_classes
 
     def split_to_clients(self):
-        if self.distribution.name == "dirichlet":
-            self.data = create_dirichlet_df(
-                self.data,
-                self.cfg.federated_params.amount_of_clients,
-                self.distribution.alpha,
-                self.distribution.verbose,
-                self.cfg.random_state,
-            )
-        else:
-            # HARDCODE
-            # If not Dirichlet, we gonna do uniform distribution
-            # But with Dirichlet distribution with alpha=1000
-
-            self.data = create_dirichlet_df(
-                self.data,
-                self.cfg.federated_params.amount_of_clients,
-                alpha=1000,
-                verbose=True,
-                random_state=self.cfg.random_state,
-            )
+        print(f"Used distribution is: {self.distribution.__class__.__name__}")
+        self.data = self.distribution.split_to_clients(
+            self.data,
+            self.cfg.federated_params.amount_of_clients,
+            self.cfg.random_state,
+        )
 
     def to_client_side(self, rank):
         self.rank = rank
         self.data = self.orig_data[self.orig_data["client"] == rank]
 
         return self
+
+    def dataset_split(self, train_val_prop):
+        # This method specifies valid dataset according to valid_data and sets splitted train data
+        train_data, valid_data = self.train_val_split(
+            self.data, train_val_prop, self.cfg.random_state
+        )
+        valid_dataset = copy.deepcopy(self)
+        valid_dataset.data = valid_data
+        valid_dataset.mode = "valid"
+        self.data = train_data
+        return valid_dataset
+
+    @staticmethod
+    def train_val_split(df, train_val_prop, random_state):
+        df = df.copy()
+        is_multilabel = (
+            isinstance(df["target"].iloc[0], list) and len(df["target"].iloc[0]) > 1
+        )
+
+        if is_multilabel:
+            df.loc[:, "strat_target"] = df["target"].apply(lambda x: tuple(x))
+        else:
+            df.loc[:, "strat_target"] = df["target"]
+
+        value_counts = df["strat_target"].value_counts()
+        major_keys = value_counts[value_counts >= 2].index
+        major_classes_df = df[df["strat_target"].isin(major_keys)].copy()
+        minor_classes_df = df[~df["strat_target"].isin(major_keys)].copy()
+        n_major_classes = len(major_keys)
+
+        # If not enough data for stratification, fall back
+        if (
+            len(major_classes_df) == 0
+            or train_val_prop * len(major_classes_df) < n_major_classes
+        ):
+            # fallback to unstratified split on entire df
+            train_df, valid_df = train_test_split(
+                major_classes_df,
+                test_size=train_val_prop,
+                random_state=random_state,
+            )
+            train_df = pd.concat([train_df, minor_classes_df], ignore_index=True)
+
+            return train_df.reset_index(drop=True), valid_df.reset_index(drop=True)
+
+        stratify = major_classes_df["strat_target"]
+        min_freq = stratify.value_counts().min()
+        max_allowed_ratio = (min_freq - 1) / min_freq
+        if max_allowed_ratio < train_val_prop:
+            train_val_prop = max_allowed_ratio
+
+        train_df, valid_df = train_test_split(
+            major_classes_df,
+            test_size=train_val_prop,
+            stratify=stratify,
+            random_state=random_state,
+        )
+        train_df = pd.concat([train_df, minor_classes_df], ignore_index=True)
+
+        return train_df.reset_index(drop=True), valid_df.reset_index(drop=True)
 
     def get_cfg(self):
         return self.cfg

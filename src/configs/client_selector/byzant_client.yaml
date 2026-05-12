@@ -1,0 +1,3 @@
+_target_: client_selectors.byzant_client.ByzantClientSelector
+prob_byzant_round: 0.8
+percent_byzants: 0.8

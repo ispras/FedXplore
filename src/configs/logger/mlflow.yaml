@@ -1,0 +1,5 @@
+_target_: utils.logging_utils.MLFlowLogger
+run_dir: ???
+tracking_uri: null
+experiment_name:  fl_test_run 
+run_name: null

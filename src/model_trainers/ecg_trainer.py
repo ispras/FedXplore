@@ -13,10 +13,8 @@ from hydra.utils import instantiate
 import warnings
 from utils.data_utils import get_dataset_loader
 
-warnings.filterwarnings("ignore")
 
-
-class PTBXLModelTrainer:
+class EcgTrainer:
     def __init__(self, cfg, metrics_for_threshold):
         # Always remember that you most likely
         # won't be able to change any variables in `context`,
@@ -27,20 +25,6 @@ class PTBXLModelTrainer:
 
         self.trust_dataset = None
         self.trust_loader = None
-
-        if "trust_dataset" in self.cfg:
-            self.trust_dataset = instantiate(
-                self.cfg.trust_dataset, cfg=cfg, mode="trust", _recursive_=False
-            )
-            self.trust_loader = get_dataset_loader(
-                self.trust_dataset, cfg, drop_last=False
-            )
-        else:
-            warnings.warn(
-                """Trust dataset is not specified, 
-                so there will be no selection of the threshold on the server. 
-                It will be set to 0.5 for testing."""
-            )
 
     def train_fn(self, context):
         # context.model must be a torch.nn.Module,
@@ -139,30 +123,14 @@ class PTBXLModelTrainer:
 
         # We find the prediction threshold differently for the client and server
         # Since selecting a treshhold based on a test data is unacceptable
-        prediction_threshold = 0.5
         if hasattr(context, "rank"):
             # We will select a threshold for the validation data
             # on the client using current validation results
             prediction_threshold = select_best_validation_threshold(
                 fin_targets, fin_outputs, self.metrics_for_threshold
             )
-        elif hasattr(context, "global_model") and (self.trust_dataset is not None):
-            # We will select a threshold for the test data
-            # on the server side by using a trust dataset
-
-            # Replace the server loader with a trust loader
-            server_test_loader = context.test_loader
-            context.test_loader = self.trust_loader
-
-            # Eval global model on trust dataset
-            trust_targets, trust_outputs, trust_loss = self.server_eval_fn(context)
-            trust_outputs = sigmoid(torch.as_tensor(trust_outputs))
-
-            # Select best threshold on trust data
-            prediction_threshold = select_best_validation_threshold(
-                trust_targets, trust_outputs, self.metrics_for_threshold
-            )
-            context.test_loader = server_test_loader
+        elif hasattr(context, "global_model"):
+            prediction_threshold = self.select_server_threshold(context)
 
         results = (fin_outputs > prediction_threshold).float().tolist()
 
@@ -178,6 +146,46 @@ class PTBXLModelTrainer:
 
         return metrics
 
+    def select_server_threshold(self, context):
+        if "trust_dataset" not in self.cfg:
+            warnings.warn(
+                """Trust dataset is not specified, 
+                so there will be no selection of the threshold on the server. 
+                It will be set to 0.5 for testing."""
+            )
+            return 0.5
+
+        if self.trust_dataset is None:
+            self.trust_dataset = instantiate(
+                self.cfg.trust_dataset,
+                cfg=self.cfg,
+                mode="trust",
+                _recursive_=False,
+            )
+            self.trust_loader = get_dataset_loader(
+                self.trust_dataset, self.cfg, drop_last=False
+            )
+
+        # We will select a threshold for the test data
+        # on the server side by using a trust dataset
+
+        # Replace the server loader with a trust loader
+        server_test_loader = context.test_loader
+        context.test_loader = self.trust_loader
+
+        # Eval global model on trust dataset
+        trust_targets, trust_outputs, trust_loss = self.server_eval_fn(context)
+        sigmoid = torch.nn.Sigmoid()
+        trust_outputs = sigmoid(torch.as_tensor(trust_outputs))
+
+        # Select best threshold on trust data
+        prediction_threshold = select_best_validation_threshold(
+            trust_targets, trust_outputs, self.metrics_for_threshold
+        )
+        context.test_loader = server_test_loader
+
+        return prediction_threshold
+
 
 def select_best_validation_threshold(
     fin_targets,
@@ -188,7 +196,7 @@ def select_best_validation_threshold(
     assert sum(v for v in metrics_threshold.values()) == 1.0
 
     fin_targets = torch.tensor(fin_targets)
-    fin_outputs = torch.tensor(fin_outputs.clone().detach())
+    fin_outputs = fin_outputs.clone().detach()
     thresholds = torch.arange(-0.01, 0.9, 0.06)
     M = fin_targets.size(1)  # Number of classes
     best_thresholds = []

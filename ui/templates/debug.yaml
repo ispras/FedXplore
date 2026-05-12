@@ -1,0 +1,23 @@
+name: Debug FedAvg
+description: Small local FedAvg run for smoke-testing the launcher on CIFAR-10.
+form:
+  run_name: debug_fedavg
+  random_state: 41
+  communication_rounds: 3
+  dataset: cifar10
+  trust_dataset: ""
+  distribution: uniform
+  distribution_alpha: 0.1
+  amount_of_clients: 10
+  client_subset_size: 5
+  training_batch_size: 32
+  manager_batch_size: 5
+  device_mode: cpu
+  device_ids: "[0]"
+  print_client_metrics: false
+  federated_method: fedavg
+  client_selector: uniform
+  logger: base
+  model: resnet18
+  model_trainer: image
+  optimizer: adam

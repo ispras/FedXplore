@@ -6,12 +6,11 @@ class FedRep(PerFedAvg):
     def __init__(
         self,
         strategy,
-        cluster_params,
         ckpt_path,
         server_test,
         warmup_rounds,
     ):
-        super().__init__(strategy, cluster_params, ckpt_path, server_test)
+        super().__init__(strategy, ckpt_path, server_test)
         self.warmup_rounds = warmup_rounds
 
     def get_communication_content(self, rank):
