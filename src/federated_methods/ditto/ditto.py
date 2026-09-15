@@ -1,27 +1,19 @@
-from ..personalized.fedavg import PerFedAvg
-from ..ditto.ditto_client import DittoClient
-from ..ditto.ditto_server import DittoServer
+from ..personalized.method import PersonalizedMethod
+from .ditto_client import DittoClient
 
 
-class Ditto(PerFedAvg):
-    def __init__(self, strategy, ckpt_path, server_test, proximity):
-        super().__init__(strategy, ckpt_path, server_test)
+class Ditto(PersonalizedMethod):
+    def __init__(self, proximity):
+        super().__init__()
         self.proximity = proximity
-
-    def _init_server(self, cfg):
-        self.server = DittoServer(cfg, self.server_test)
 
     def _init_client_cls(self):
         super()._init_client_cls()
         self.client_cls = DittoClient
         self.client_kwargs["client_cls"] = self.client_cls
-        self.client_args.extend([self.proximity])
+        self.client_args.append(self.proximity)
 
     def get_communication_content(self, rank):
-        res_dict = super().get_communication_content(rank)
-        res_dict["local_model"] = (
-            {k: v.cpu() for k, v in self.server.local_models[rank].items()}
-            if self.cur_round != 0
-            else self.server.global_model.state_dict()
-        )
-        return res_dict
+        content = super().get_communication_content(rank)
+        content["personalized_model"] = self.get_personalized_state(rank)
+        return content

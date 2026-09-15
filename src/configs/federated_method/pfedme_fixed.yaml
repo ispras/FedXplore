@@ -1,5 +1,0 @@
-_target_: federated_methods.pfedme_fixed.method.pFedMeFixed
-proximity: 5.0
-momentum: 1.0
-k_steps: 3
-personal_learning_rate: 0.08

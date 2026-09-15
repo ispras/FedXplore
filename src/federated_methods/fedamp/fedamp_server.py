@@ -1,9 +1,9 @@
 from collections import OrderedDict
 
-from ..personalized_fixed.server import PersonalizedFixedServer
+from ..personalized.server import PersonalizedServer
 
 
-class FedAMPFixedServer(PersonalizedFixedServer):
+class FedAMPServer(PersonalizedServer):
     def __init__(self, cfg):
         super().__init__(cfg)
         self.relative_models = [

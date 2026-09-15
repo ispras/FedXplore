@@ -71,15 +71,13 @@ python src/train.py \
 
 At the first run, downloading PTB-XL takes some time.
 
-#### 🧑‍🤝‍🧑 [FedAMP](https://arxiv.org/abs/2007.03797) with 10 clusters on [CIFAR-10](https://www.cs.toronto.edu/~kriz/cifar.html) dataset
+#### 🧑‍🤝‍🧑 Personalized [FedAMP](https://arxiv.org/abs/2007.03797) on [CIFAR-10](https://www.cs.toronto.edu/~kriz/cifar.html)
 
 ```bash
 python src/train.py \
   federated_method=fedamp \
-  federated_method.strategy=sharded \
-  federated_method.cluster_params=[10,0.5] \
-  federated_params.amount_of_clients=100 \
-  federated_params.client_subset_size=100 \
+  federated_params.amount_of_clients=10 \
+  federated_params.client_subset_size=10 \
   training_params.batch_size=32 \
-  > fedamp_10_clusters_cifar10.txt
+  > fedamp_cifar10.txt
 ```

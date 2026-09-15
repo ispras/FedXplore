@@ -1,9 +1,4 @@
 _target_: federated_methods.fedamp.fedamp.FedAMP
-strategy: base # base, sharded, filter. See strategy.py for details
-ckpt_path: null
-server_test: False
-
-# FedAMP params:
-proximity: 0.2
+proximity: 1.0
 scaling: 0.5
-self_value: 0.15
+self_value: 0.2

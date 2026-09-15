@@ -1,29 +1,24 @@
 from ..fedavg.fedavg_client import FedAvgClient
-from .strategy import STRATEGY_REGISTRY, BaseStrategy
 
 
-class PerClient(FedAvgClient):
-    def create_pipe_commands(self):
-        pipe_commands_map = super().create_pipe_commands()
-        pipe_commands_map["strategy"] = self.map_client_strategy
-        return pipe_commands_map
+class PersonalizedClient(FedAvgClient):
+    def __init__(self, *client_args, **client_kwargs):
+        super().__init__(*client_args, **client_kwargs)
+        self.personalized_model_state = None
+        self.personalized_result = None
 
-    def map_client_strategy(self, strategy_payload):
-        assert isinstance(
-            strategy_payload, dict
-        ), f"Unsupported strategy payload type: {type(strategy_payload)}"
+    def clone_model_state(self):
+        return {
+            key: value.detach().cpu().clone()
+            for key, value in self.model.state_dict().items()
+        }
 
-        strategy_key = strategy_payload.get("strategy_key")
-        if strategy_key is None:
-            raise ValueError("Client payload must include a strategy_key.")
+    def set_personalized_result(self, metrics, loss):
+        self.personalized_model_state = self.clone_model_state()
+        self.personalized_result = (metrics, float(loss), len(self.valid_dataset))
 
-        strategy_cls = STRATEGY_REGISTRY.get(strategy_key)
-        if strategy_cls is None:
-            raise ValueError(
-                f"Unknown strategy key received: {strategy_key}. If you add a new strategy, please register it in STRATEGY_REGISTRY."
-            )
-
-        init_kwargs = strategy_payload.get("init_kwargs") or {}
-        strategy_instance = strategy_cls(**init_kwargs)
-        strategy_instance.apply_client_payload(self, strategy_payload)
-        self.strategy_payload = strategy_payload
+    def get_communication_content(self):
+        result = super().get_communication_content()
+        result["personalized_model"] = self.personalized_model_state
+        result["personalized_metrics"] = self.personalized_result
+        return result

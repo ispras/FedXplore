@@ -1,7 +1,3 @@
 _target_: federated_methods.fedrep.fedrep.FedRep
-strategy: base # base, sharded, filter. See strategy.py for details
-ckpt_path: null
-server_test: False
-
-# FedREP params:
-warmup_rounds: 12 # amount fedavg rounds for warmup
+head_local_epochs: 2
+representation_local_epochs: 1

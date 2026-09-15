@@ -1,4 +1,0 @@
-_target_: federated_methods.fedamp_fixed.method.FedAMPFixed
-proximity: 1.0
-scaling: 0.5
-self_value: 0.2

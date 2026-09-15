@@ -22,7 +22,6 @@ form:
   model_trainer: image
   optimizer: sgd
 overrides:
-  - federated_method.strategy=base
-  - federated_method.proximity=0.2
+  - federated_method.proximity=1.0
   - federated_method.scaling=0.5
-  - federated_method.self_value=0.15
+  - federated_method.self_value=0.2

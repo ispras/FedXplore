@@ -1,49 +1,51 @@
 import copy
+import time
 
-from ..personalized.client import PerClient
+from ..personalized.client import PersonalizedClient
 
 
-class FedAMPClient(PerClient):
-    def __init__(
-        self,
-        *client_args,
-        **client_kwargs,
-    ):
-        base_client_args = client_args[:2]  # `cfg` and `df` and `models_for_clients`
-        super().__init__(*base_client_args, **client_kwargs)
+class FedAMPClient(PersonalizedClient):
+    def __init__(self, *client_args, **client_kwargs):
+        super().__init__(*client_args, **client_kwargs)
         self.proximity = client_args[2]
-        self.client_args = client_args
         self.relative_model = copy.deepcopy(self.model)
 
     def create_pipe_commands(self):
-        pipe_commands_map = super().create_pipe_commands()
-        pipe_commands_map["relative_model"] = (
-            lambda state_dict: self.relative_model.load_state_dict(
-                {k: v.to(self.device) for k, v in state_dict.items()}
-            )
-        )
-        return pipe_commands_map
+        commands = super().create_pipe_commands()
+        commands["client_model"] = self.set_client_model
+        commands["relative_model"] = self.set_relative_model
+        return commands
+
+    def set_client_model(self, state_dict):
+        self.model.load_state_dict(state_dict)
+
+    def set_relative_model(self, state_dict):
+        self.relative_model.load_state_dict(state_dict)
 
     def get_loss_value(self, outputs, targets):
         loss = super().get_loss_value(outputs, targets)
-        proximity = (
+        loss += (
             0.5
-            # * (1 / self.optimizer[0].param_groups[0]['lr']) # in original paper, but even if lr = 1e-3
             * self.proximity
             * sum(
-                [
-                    (p.float() - q.float().detach()).norm() ** 2
-                    for (_, p), (_, q) in zip(
-                        self.model.named_parameters(),
-                        self.relative_model.named_parameters(),
-                    )
-                ]
+                (parameter - reference.detach()).norm() ** 2
+                for parameter, reference in zip(
+                    self.model.parameters(),
+                    self.relative_model.parameters(),
+                )
             )
         )
-        loss += proximity
         return loss
 
-    def get_grad(self):
-        self.model.eval()
-        for key, weights in self.model.state_dict().items():
-            self.grad[key] = weights.to("cpu")
+    def train(self):
+        start = time.time()
+        self.server_model_state = self.clone_model_state()
+        self.server_val_loss, self.server_metrics = self.model_trainer.client_eval_fn(
+            self
+        )
+        self._init_optimizer()
+        self.model_trainer.train_fn(self)
+        loss, metrics = self.model_trainer.client_eval_fn(self)
+        self.set_personalized_result(metrics, loss)
+        self.grad = self.clone_model_state()
+        self.result_time = time.time() - start

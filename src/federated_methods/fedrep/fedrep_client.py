@@ -1,94 +1,102 @@
-import copy
 import time
-import torch
-import torch.nn as nn
+
 from hydra.utils import instantiate
-from ..personalized.client import PerClient
+
+from utils.data_utils import get_dataset_loader
+from ..personalized.client import PersonalizedClient
 
 
-class FedRepClient(PerClient):
-    def __init__(
-        self,
-        *client_args,
-        **client_kwargs,
-    ):
+class FedRepClient(PersonalizedClient):
+    def __init__(self, *client_args, **client_kwargs):
         super().__init__(*client_args, **client_kwargs)
-        self.warmup = True
+        self.head_local_epochs = client_args[2]
+        self.representation_local_epochs = client_args[3]
+        self.evaluation_only = False
+        self.evaluation_result = None
 
     def create_pipe_commands(self):
-        pipe_commands_map = super().create_pipe_commands()
-        pipe_commands_map["update_model"] = self.load_body_new_head
-        pipe_commands_map["warmup"] = self.set_wp
-        return pipe_commands_map
+        commands = super().create_pipe_commands()
+        commands["client_state"] = self.load_client_state
+        commands["evaluation_state"] = self.load_evaluation_state
+        return commands
 
-    def set_wp(self, warmup_flag):
-        self.warmup = warmup_flag
+    def load_client_state(self, state_dict):
+        self.model.load_state_dict(state_dict)
 
-    def load_body_new_head(self, server_state_dict):
-        new_state_dict = copy.deepcopy(server_state_dict)
+    def load_evaluation_state(self, state_dict):
+        self.model.load_state_dict(state_dict)
+        self.evaluation_only = True
 
-        # Hardcode for our Resnet
-        for k, v in new_state_dict.items():
-            # Reinit head
-            if ("linear" in k) and (not self.warmup):
-                linear_layer = nn.Linear(
-                    512 * self.model.block.expansion, self.global_dataset.num_classes
-                )
+    @staticmethod
+    def is_head_parameter(name):
+        return name.startswith(("head.", "linear."))
 
-                with torch.no_grad():
-                    if "weight" in k:
-                        new_state_dict[k] = linear_layer.weight
-                    elif "bias" in k:
-                        new_state_dict[k] = linear_layer.bias
-
-        self.model.load_state_dict(new_state_dict)
-
-    def freeze_model(self, freeze_mode="unfreeze"):
-        head_require_grad = freeze_mode != "head"
-        body_require_grad = freeze_mode != "body"
-
-        for name, param in self.model.named_parameters():
-            if "linear" in name:
-                param.requires_grad = head_require_grad
-            else:
-                param.requires_grad = body_require_grad
-
+    def set_trainable_part(self, part):
+        train_head = part == "head"
+        for name, parameter in self.model.named_parameters():
+            parameter.requires_grad = self.is_head_parameter(name) == train_head
         self._init_optimizer()
 
     def train(self):
-        self.server_model_state = copy.deepcopy(self.model).state_dict()
+        if self.evaluation_only:
+            self.evaluate_aggregated_representation()
+            return
+
         start = time.time()
+        self.server_model_state = self.clone_model_state()
+        self.server_val_loss, self.server_metrics = self.model_trainer.client_eval_fn(
+            self
+        )
 
-        # ---------- FedREP ---------- #
-        if self.warmup:
-            # Evaluate server model
-            self.server_val_loss, self.server_metrics = (
-                self.model_trainer.client_eval_fn(self)
-            )
-            # Just training server model
-            self.model_trainer.train_fn(self)
-        else:
-            # Training head
-            self.freeze_model(freeze_mode="body")  # freeze body, unfreeze head
-            self.model_trainer.train_fn(self)
+        self.local_epochs = self.head_local_epochs
+        self.set_trainable_part("head")
+        self.model_trainer.train_fn(self)
+        self.local_head = {
+            key: value.detach().cpu().clone()
+            for key, value in self.model.state_dict().items()
+            if self.is_head_parameter(key)
+        }
+        loss, metrics = self.model_trainer.client_eval_fn(self)
+        self.set_personalized_result(metrics, loss)
 
-            # Evaluate personalized model
-            self.server_val_loss, self.server_metrics = (
-                self.model_trainer.client_eval_fn(self)
-            )
-
-            # Training feature extractor
-            self.local_epochs = 1
-            self.freeze_model(freeze_mode="head")  # freeze head, unfreeze body
-            self.model_trainer.train_fn(self)
-
-        # ---------- FedREP ---------- #
-
-        if self.print_metrics:
-            self.client_val_loss, self.client_metrics = (
-                self.model_trainer.client_eval_fn(self)
-            )
-
+        self.local_epochs = self.representation_local_epochs
+        self.set_trainable_part("representation")
+        self.model_trainer.train_fn(self)
         self.get_grad()
-        # Save training time
         self.result_time = time.time() - start
+
+    def evaluate_aggregated_representation(self):
+        start = time.time()
+        self.local_epochs = self.head_local_epochs
+        self.set_trainable_part("head")
+        self.model_trainer.train_fn(self)
+        validation_loss, validation_metrics = self.model_trainer.client_eval_fn(self)
+
+        test_dataset = instantiate(
+            self.cfg.test_dataset,
+            cfg=self.cfg,
+            mode="test",
+            _recursive_=False,
+        )
+        test_loader = get_dataset_loader(test_dataset, self.cfg, drop_last=False)
+        validation_loader = self.valid_loader
+        self.valid_loader = test_loader
+        test_loss, test_metrics = self.model_trainer.client_eval_fn(self)
+        self.valid_loader = validation_loader
+
+        self.evaluation_result = {
+            "rank": self.rank,
+            "personalized_model": self.clone_model_state(),
+            "validation_metrics": validation_metrics,
+            "validation_loss": float(validation_loss),
+            "test_metrics": test_metrics,
+            "test_loss": float(test_loss),
+        }
+        self.result_time = time.time() - start
+
+    def get_communication_content(self):
+        if self.evaluation_result is not None:
+            return self.evaluation_result
+        result = super().get_communication_content()
+        result["local_head"] = self.local_head
+        return result

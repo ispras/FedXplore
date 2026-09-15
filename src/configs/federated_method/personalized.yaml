@@ -1,4 +1,0 @@
-_target_: federated_methods.personalized.fedavg.PerFedAvg
-strategy: base # base, sharded, filter. See strategy.py for details
-ckpt_path: null
-server_test: False

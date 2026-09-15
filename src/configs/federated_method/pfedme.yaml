@@ -1,8 +1,5 @@
 _target_: federated_methods.pfedme.pfedme.pFedMe
-strategy: base # base, sharded, filter. See strategy.py for details
-ckpt_path: null
-server_test: False
-
-# pFedMe params:
-proximity: 0.2
-momentum: 0.95
+proximity: 5.0
+momentum: 1.0
+k_steps: 3
+personal_learning_rate: 0.08
