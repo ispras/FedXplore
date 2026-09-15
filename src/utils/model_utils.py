@@ -126,6 +126,25 @@ def resnet18(num_classes):
     return ResNet(BasicBlock, [2, 2, 2, 2], num_classes=num_classes)
 
 
+def logistic_regression(input_size, num_classes):
+    return nn.Linear(input_size, num_classes)
+
+
+class FactorizedLinear(nn.Module):
+    def __init__(self, input_size, representation_size, num_classes):
+        super().__init__()
+        self.representation = nn.Linear(input_size, representation_size, bias=False)
+        nn.init.eye_(self.representation.weight)
+        self.head = nn.Linear(representation_size, num_classes)
+
+    def forward(self, inputs):
+        return self.head(self.representation(inputs))
+
+
+def factorized_linear(input_size, representation_size, num_classes):
+    return FactorizedLinear(input_size, representation_size, num_classes)
+
+
 def resnet34(num_classes):
     return ResNet(BasicBlock, [3, 4, 6, 3], num_classes=num_classes)
 

@@ -101,6 +101,22 @@ class LabelFlipClient(AttackClient):
         return train_df
 
 
+class BinaryLabelFlipClient(AttackClient):
+    def apply_attack(self, client_instance):
+        client_instance.train_dataset.data = self._flip_labels(
+            client_instance.train_dataset.data
+        )
+        client_instance.train_loader = get_dataset_loader(
+            client_instance.train_dataset, client_instance.cfg, drop_last=False
+        )
+        return client_instance
+
+    def _flip_labels(self, train_df):
+        assert set(train_df["target"].unique()) <= {0, 1}
+        train_df["target"] = 1 - train_df["target"]
+        return train_df
+
+
 class AttackGradClient(AttackClient):
     def __init__(self, percent_of_changed_grads):
         self.percent_of_changed_grads = percent_of_changed_grads

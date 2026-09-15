@@ -1,0 +1,9 @@
+_target_: federated_datasets.personalization_2d_dataset.Personalization2DDataset
+data_sources: {}
+base_path: null
+mode: train
+samples_per_client: 240
+num_test_samples: 1200
+invariant_strength: 0.55
+local_strength: 1.6
+noise_std: 1.0

@@ -1,0 +1,3 @@
+_target_: federated_methods.fedrep_fixed.method.FedRepFixed
+head_local_epochs: 2
+representation_local_epochs: 1

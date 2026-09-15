@@ -1,4 +1,8 @@
+import random
+
 import hydra
+import numpy as np
+import torch
 from omegaconf import DictConfig
 from hydra.utils import instantiate
 
@@ -8,6 +12,9 @@ from utils.process_utils import errors_parent_handler
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 @errors_parent_handler
 def train(cfg: DictConfig):
+    random.seed(cfg.random_state)
+    np.random.seed(cfg.random_state)
+    torch.manual_seed(cfg.random_state)
 
     # Init federated_method
     trainer = instantiate(cfg.federated_method, _recursive_=False)

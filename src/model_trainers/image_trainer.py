@@ -99,8 +99,9 @@ class ImageTrainer:
         fin_targets = torch.as_tensor(fin_targets)
 
         # Calc metrics
+        metric_column = "overall"
         df = pd.DataFrame(
-            columns=["cifar"],
+            columns=[metric_column],
             index=[
                 "Accuracy",
                 "Precision",
@@ -108,14 +109,14 @@ class ImageTrainer:
                 "f1-score",
             ],
         )
-        df.loc["Accuracy", "cifar"] = accuracy_score(fin_targets, results)
-        df.loc["Precision", "cifar"] = precision_score(
+        df.loc["Accuracy", metric_column] = accuracy_score(fin_targets, results)
+        df.loc["Precision", metric_column] = precision_score(
             fin_targets, results, average="macro", zero_division=0
         )
-        df.loc["Recall", "cifar"] = recall_score(
+        df.loc["Recall", metric_column] = recall_score(
             fin_targets, results, average="macro", zero_division=0
         )
-        df.loc["f1-score", "cifar"] = f1_score(
+        df.loc["f1-score", metric_column] = f1_score(
             fin_targets, results, average="macro", zero_division=0
         )
         if verbose:

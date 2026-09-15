@@ -1,0 +1,4 @@
+_target_: utils.model_utils.factorized_linear
+input_size: 2
+representation_size: 2
+num_classes: 2
