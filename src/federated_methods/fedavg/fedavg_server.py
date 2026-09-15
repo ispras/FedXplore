@@ -66,6 +66,7 @@ class FedAvgServer:
         self.amount_of_clients = self.cfg.federated_params.amount_of_clients
         self.best_round = 0
         self.rounds_no_improve = 0
+        self.checkpoint_path = None
         self.last_metrics = None
         self.global_model = None
         self.cur_round = None
@@ -124,6 +125,8 @@ class FedAvgServer:
         self.latest_validation_loss = val_loss
         print(f"\nServer Valid Results:\n{metrics}")
         print(f"Server Valid Loss: {val_loss}")
+        if not self.best_metrics:
+            return
         # Update best metrics
         rounds_no_improve, best_metrics = stopping_criterion(
             val_loss,

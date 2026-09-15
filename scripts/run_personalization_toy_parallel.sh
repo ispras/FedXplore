@@ -4,10 +4,14 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-PYTHON=${PYTHON:-/home/skorik/federated_research/venv/bin/python}
-RUN_DIR=${RUN_DIR:-outputs/personalization_toy_parallel/$(date +%Y%m%d_%H%M%S)}
+PYTHON=${PYTHON:-python}
+LOGGER=${LOGGER:-mlflow}
+RUN_GROUP=${RUN_GROUP:-personalization_toy_$(date +%Y%m%d_%H%M%S)}
+RUN_DIR=${RUN_DIR:-outputs/personalization_toy_parallel/$RUN_GROUP}
+TRACKING_URI=${TRACKING_URI:-$PWD/outputs/mlruns}
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-FedXplore Toy Examples}
 SEED=${SEED:-42}
-ROUNDS=${ROUNDS:-20}
+ROUNDS=${ROUNDS:-30}
 DEVICE=${DEVICE:-cpu}
 MANAGER_BATCH_SIZE=${MANAGER_BATCH_SIZE:-5}
 DITTO_PROXIMITY=${DITTO_PROXIMITY:-1.0}
@@ -25,7 +29,7 @@ COMMON=(
   dataset@test_dataset=personalization_2d
   model=factorized_linear
   model_trainer=image
-  logger=base
+  "logger=$LOGGER"
   optimizer=sgd
   optimizer.lr=0.08
   distribution=uniform
@@ -39,6 +43,7 @@ COMMON=(
   federated_params.local_epochs=1
   federated_params.client_train_val_prop=0.25
   federated_params.print_client_metrics=False
+  federated_params.server_saving_metrics=[]
 )
 
 if [[ "$DEVICE" == cuda ]]; then
@@ -61,28 +66,44 @@ stop_children() {
 trap stop_children INT TERM
 
 launch() {
-  local name=$1
-  shift
+  local condition=$1
+  local method=$2
+  shift 2
+  local logger_overrides=()
+  if [[ "$LOGGER" == mlflow ]]; then
+    logger_overrides=(
+      "logger.tracking_uri=$TRACKING_URI"
+      "logger.experiment_name=$EXPERIMENT_NAME"
+      "logger.run_name=$RUN_GROUP/$condition"
+      "+logger.tags.toy_suite=personalization"
+      "+logger.tags.run_group=$RUN_GROUP"
+      "+logger.tags.condition=$condition"
+      "+logger.tags.method=$method"
+      "+logger.tags.seed=$SEED"
+    )
+  fi
   "$PYTHON" src/train.py \
     "${COMMON[@]}" \
+    "${logger_overrides[@]}" \
     "$@" \
-    "hydra.run.dir=$RUN_DIR/${name}_hydra" \
-    > "$RUN_DIR/$name.txt" 2>&1 &
+    "hydra.run.dir=$RUN_DIR/${condition}_hydra" \
+    > "$RUN_DIR/$condition.txt" 2>&1 &
   pids+=("$!")
-  names+=("$name")
+  names+=("$condition")
 }
 
 start_time=$(date +%s)
 printf 'Run directory: %s\nRounds: %s\nDevice: %s\n' "$RUN_DIR" "$ROUNDS" "$DEVICE"
 printf 'Seed: %s\nManager batch size: %s\n' "$SEED" "$MANAGER_BATCH_SIZE"
 printf 'Ditto proximity: %s\n' "$DITTO_PROXIMITY"
-launch fedavg federated_method=fedavg
-launch personalized_local federated_method=personalization_toy federated_method.proximity=0.0
-launch ditto_fixed federated_method=ditto_fixed \
+printf 'Logger: %s\nRun group: %s\n' "$LOGGER" "$RUN_GROUP"
+launch fedavg fedavg federated_method=fedavg
+launch personalized_local ditto federated_method=ditto federated_method.proximity=0.0
+launch ditto ditto federated_method=ditto \
   "federated_method.proximity=$DITTO_PROXIMITY"
-launch pfedme_fixed federated_method=pfedme_fixed
-launch fedrep_fixed federated_method=fedrep_fixed
-launch fedamp_fixed federated_method=fedamp_fixed
+launch pfedme pfedme federated_method=pfedme
+launch fedrep fedrep federated_method=fedrep
+launch fedamp fedamp federated_method=fedamp
 
 failed=0
 for index in "${!pids[@]}"; do

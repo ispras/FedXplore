@@ -4,8 +4,13 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-PYTHON=${PYTHON:-/home/skorik/federated_research/venv/bin/python}
-RUN_DIR=${RUN_DIR:-outputs/interdependency_toy_parallel/$(date +%Y%m%d_%H%M%S)}
+PYTHON=${PYTHON:-python}
+LOGGER=${LOGGER:-mlflow}
+RUN_GROUP=${RUN_GROUP:-interdependency_toy_$(date +%Y%m%d_%H%M%S)}
+RUN_DIR=${RUN_DIR:-outputs/interdependency_toy_parallel/$RUN_GROUP}
+TRACKING_URI=${TRACKING_URI:-$PWD/outputs/mlruns}
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-FedXplore Toy Examples}
+SEED=${SEED:-42}
 GPU_IDS=${GPU_IDS:-0}
 DEVICE=${DEVICE:-cuda}
 ROUNDS=${ROUNDS:-40}
@@ -22,12 +27,12 @@ export NUMEXPR_NUM_THREADS=${NUMEXPR_NUM_THREADS:-1}
 mkdir -p "$RUN_DIR"
 
 COMMON=(
-  random_state=42
+  "random_state=$SEED"
   dataset@train_dataset=synthetic_2d
   dataset@test_dataset=synthetic_2d
   model=logistic_regression
   model_trainer=image
-  logger=base
+  "logger=$LOGGER"
   optimizer=sgd
   optimizer.lr=0.1
   distribution=dirichlet
@@ -40,6 +45,7 @@ COMMON=(
   federated_params.client_subset_size=10
   "federated_params.communication_rounds=$ROUNDS"
   federated_params.print_client_metrics=False
+  federated_params.server_saving_metrics=[]
 )
 
 if [[ "$DEVICE" == cuda ]]; then
@@ -62,18 +68,33 @@ stop_children() {
 trap stop_children INT TERM
 
 launch() {
-  local name=$1
-  shift
+  local condition=$1
+  local method=$2
+  shift 2
+  local logger_overrides=()
+  if [[ "$LOGGER" == mlflow ]]; then
+    logger_overrides=(
+      "logger.tracking_uri=$TRACKING_URI"
+      "logger.experiment_name=$EXPERIMENT_NAME"
+      "logger.run_name=$RUN_GROUP/$condition"
+      "+logger.tags.toy_suite=interdependency"
+      "+logger.tags.run_group=$RUN_GROUP"
+      "+logger.tags.condition=$condition"
+      "+logger.tags.method=$method"
+      "+logger.tags.seed=$SEED"
+    )
+  fi
 
   "$PYTHON" src/train.py \
     "${COMMON[@]}" \
+    "${logger_overrides[@]}" \
     "$@" \
-    "hydra.run.dir=$RUN_DIR/${name}_hydra" \
-    > "$RUN_DIR/$name.txt" 2>&1 &
+    "hydra.run.dir=$RUN_DIR/${condition}_hydra" \
+    > "$RUN_DIR/$condition.txt" 2>&1 &
 
   pids+=("$!")
-  names+=("$name")
-  printf '%s\t%s\n' "$!" "$name" >> "$RUN_DIR/pids.tsv"
+  names+=("$condition")
+  printf '%s\t%s\n' "$!" "$condition" >> "$RUN_DIR/pids.tsv"
 }
 
 start_time=$(date +%s)
@@ -82,11 +103,12 @@ printf 'Run directory: %s\nDevice: %s\nGPU IDs: %s\nRounds: %s\n' \
 printf 'Attack proportion: %s\nCandidate set size: %s\nManager batch size: %s\n' \
   "$ATTACK_PROPORTION" "$CANDIDATE_SET_SIZE" "$MANAGER_BATCH_SIZE"
 printf 'CentralClip tau: %s\n' "$TAU_CLIP"
+printf 'Logger: %s\nRun group: %s\nSeed: %s\n' "$LOGGER" "$RUN_GROUP" "$SEED"
 printf 'Thread limits: OMP=%s MKL=%s OpenBLAS=%s NumExpr=%s\n' \
   "$OMP_NUM_THREADS" "$MKL_NUM_THREADS" "$OPENBLAS_NUM_THREADS" \
   "$NUMEXPR_NUM_THREADS"
 
-launch clean_cc_uniform \
+launch clean_cc_uniform central_clip \
   federated_method=central_clip "federated_method.tau_clip=$TAU_CLIP" \
   client_selector=uniform \
   federated_params.clients_attack_types=no_attack \
@@ -94,7 +116,7 @@ launch clean_cc_uniform \
   federated_params.attack_scheme=no_attack \
   federated_params.prop_attack_rounds=0.0
 
-launch labelflip_cc_uniform \
+launch labelflip_cc_uniform central_clip \
   federated_method=central_clip "federated_method.tau_clip=$TAU_CLIP" \
   client_selector=uniform \
   federated_params.clients_attack_types=binary_label_flip \
@@ -102,7 +124,7 @@ launch labelflip_cc_uniform \
   federated_params.attack_scheme=constant \
   federated_params.prop_attack_rounds=1.0
 
-launch labelflip_cc_pow \
+launch labelflip_cc_pow central_clip \
   federated_method=central_clip "federated_method.tau_clip=$TAU_CLIP" \
   client_selector=pow "client_selector.candidate_set_size=$CANDIDATE_SET_SIZE" \
   federated_params.clients_attack_types=binary_label_flip \
@@ -110,7 +132,7 @@ launch labelflip_cc_pow \
   federated_params.attack_scheme=constant \
   federated_params.prop_attack_rounds=1.0
 
-launch labelflip_cc_fedcbs \
+launch labelflip_cc_fedcbs central_clip \
   federated_method=central_clip "federated_method.tau_clip=$TAU_CLIP" \
   client_selector=fedcbs \
   federated_params.clients_attack_types=binary_label_flip \
@@ -118,7 +140,7 @@ launch labelflip_cc_fedcbs \
   federated_params.attack_scheme=constant \
   federated_params.prop_attack_rounds=1.0
 
-launch labelflip_fedavg_uniform \
+launch labelflip_fedavg_uniform fedavg \
   federated_method=fedavg \
   client_selector=uniform \
   federated_params.clients_attack_types=binary_label_flip \

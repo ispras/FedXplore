@@ -182,6 +182,18 @@ class FedAvg:
             self.server.global_model,
         )
 
+    def log_evaluation_metrics(self):
+        self.logger.log_scalar(
+            float(self.server.test_loss), "test/loss", self.cur_round
+        )
+        self.logger.log_pandas(self.server.last_metrics, "test/", self.cur_round)
+        self.logger.log_scalar(
+            float(self.server.latest_validation_loss), "val/loss", self.cur_round
+        )
+        self.logger.log_pandas(
+            self.server.latest_validation_metrics, "val/", self.cur_round
+        )
+
     def log_round(self):
         # Update checkpoint path in logger, because best model save with round number
         self.logger.checkpoint_path = self.server.checkpoint_path
@@ -197,19 +209,7 @@ class FedAvg:
             self.logger.save_artifact(md_distr, "client_distribution.md")
             self.logger.log_run_info(self.cfg)
 
-        # Log test metrics
-        self.logger.log_scalar(
-            float(self.server.test_loss), "test/loss", self.cur_round
-        )
-        self.logger.log_pandas(self.server.last_metrics, "test/", self.cur_round)
-
-        # Log val metrics
-        self.logger.log_scalar(
-            float(self.server.latest_validation_loss), "val/loss", self.cur_round
-        )
-        self.logger.log_pandas(
-            self.server.latest_validation_metrics, "val/", self.cur_round
-        )
+        self.log_evaluation_metrics()
 
         if self.cfg.federated_params.print_client_metrics:
             # collect client metrics, if provided

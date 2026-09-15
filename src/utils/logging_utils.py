@@ -1,10 +1,11 @@
+import json
 import os
+import subprocess
 import sys
-import torch
-import mlflow
 import tempfile
 import warnings
-import subprocess
+
+import mlflow
 import numpy as np
 import pandas as pd
 from omegaconf import OmegaConf
@@ -100,11 +101,21 @@ class MLFlowLogger(BaseLogger):
         tracking_uri,
         experiment_name,
         run_name,
+        tags=None,
     ):
         super().__init__(run_dir)
-        self.tracking_uri = "" if tracking_uri in {None, "", "null"} else str(tracking_uri).strip()
+        self.tracking_uri = (
+            ""
+            if tracking_uri in {None, "", "null"}
+            else str(tracking_uri).strip()
+        )
         self.experiment_name = experiment_name
         self.run_name = run_name
+        self.tags = {
+            str(key): str(value) for key, value in dict(tags or {}).items()
+        }
+        self._pending_metrics = {}
+        self._pending_metric_step = None
         self.init_mlflow()
 
     def init_mlflow(self):
@@ -117,7 +128,7 @@ class MLFlowLogger(BaseLogger):
         self.experiment_id = getattr(experiment, "experiment_id", None)
         active_run = mlflow.active_run()
         if active_run is None:
-            started_run = mlflow.start_run(run_name=self.run_name)
+            started_run = mlflow.start_run(run_name=self.run_name, tags=self.tags)
             self.run_id = started_run.info.run_id
         else:
             self.run_id = active_run.info.run_id
@@ -132,6 +143,15 @@ class MLFlowLogger(BaseLogger):
             print(f"MLFLOW_EXPERIMENT_ID={self.experiment_id}")
         if self.run_url:
             print(f"MLFLOW_RUN_URL={self.run_url}")
+        metadata = {
+            "run_id": self.run_id,
+            "experiment_id": self.experiment_id,
+            "tracking_uri": self.tracking_uri,
+            "run_url": self.run_url,
+            "run_name": self.run_name,
+        }
+        with open(os.path.join(self.run_dir, "mlflow_run.json"), "w") as file:
+            json.dump(metadata, file, indent=2)
 
     def log_run_info(self, cfg):
         mlflow.log_dict(OmegaConf.to_container(cfg, resolve=True), "config.yaml")
@@ -149,7 +169,17 @@ class MLFlowLogger(BaseLogger):
             warnings.warn(f"Cannot log scalar {name} with value {scalar}")
             return
 
-        mlflow.log_metric(name, value, step=cur_round)
+        if self._pending_metric_step not in {None, cur_round}:
+            self._flush_metrics()
+        self._pending_metric_step = cur_round
+        self._pending_metrics[name] = value
+
+    def _flush_metrics(self):
+        if not self._pending_metrics:
+            return
+        mlflow.log_metrics(self._pending_metrics, step=self._pending_metric_step)
+        self._pending_metrics = {}
+        self._pending_metric_step = None
 
     def log_pandas(self, pandas, group_name, cur_round):
         """
@@ -175,6 +205,7 @@ class MLFlowLogger(BaseLogger):
         if group_name and not group_name.endswith("/"):
             group_name = group_name + "/"
 
+        metrics = {}
         for row_name in pandas.index:
             for col_name in pandas.columns:
                 value = pandas.loc[row_name, col_name]
@@ -191,7 +222,13 @@ class MLFlowLogger(BaseLogger):
                     continue
 
                 metric_name = f"{group_name}{row_name}_{col_name}"
-                mlflow.log_metric(metric_name, value, step=cur_round)
+                metrics[metric_name] = value
+        if self._pending_metric_step == cur_round:
+            metrics = {**self._pending_metrics, **metrics}
+            self._pending_metrics = {}
+            self._pending_metric_step = None
+        if metrics:
+            mlflow.log_metrics(metrics, step=cur_round)
 
     def save_artifact(self, content, artifact_name):
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,10 +243,6 @@ class MLFlowLogger(BaseLogger):
             mlflow.log_artifact(path)
 
     def end_logging(self):
+        self._flush_metrics()
         super().end_logging()
-        # Update current best model state with run_id info
-        if hasattr(self, "state") and self.state is not None:
-            OmegaConf.update(self.state["config_file"], "logger.run_id", self.run_id)
-            # Save model info
-            torch.save(self.state, self.checkpoint_path)
         mlflow.end_run()

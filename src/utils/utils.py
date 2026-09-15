@@ -147,6 +147,7 @@ def generate_confluence_report(
         assert (
             git_info is not None and run_command is not None
         ), f"if we don't have global checkpoint in FL, we need to provide git_info and run_command."
+        metrics = None
 
     f.write(
         f"- Ветка проекта _{git_info['repo_name']}_:\n*{git_info['branch_name']}*\n"
