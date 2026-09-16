@@ -1,0 +1,158 @@
+sections:
+  federated_method:
+    fedavg:
+      order: 10
+      aliases: [fedavg, fed_avg, uniform_fedavg]
+      display_name: FedAvg
+      tags: [Heterogeneity]
+      description: "Standard federated averaging baseline: selected clients train locally and the server aggregates their updates into one global model."
+      reference: {label: "McMahan et al., AISTATS 2017", url: "https://arxiv.org/abs/1602.05629"}
+    fedprox:
+      order: 20
+      aliases: [fedprox, fed_prox]
+      display_name: FedProx
+      tags: [Heterogeneity]
+      description: FedAvg with a proximal local objective that limits client drift under heterogeneous data and systems.
+      reference: {label: "Li et al., MLSys 2020", url: "https://arxiv.org/abs/1812.06127"}
+    fednova:
+      order: 25
+      aliases: [fednova, fed_nova]
+      display_name: FedNova
+      tags: [Heterogeneity]
+      description: "FedNova normalizes local model updates by their effective number of local optimization steps before server aggregation. This removes objective inconsistency caused by unequal local work and improves convergence under heterogeneous client data and varying local epochs."
+      reference: {label: "Wang et al., NeurIPS 2020", url: "https://arxiv.org/pdf/2007.07481"}
+    cluster_personalized:
+      order: 35
+      aliases: [cluster_personalized, cluster-personalized]
+      display_name: Cluster Personalized
+      tags: [Personalization]
+      description: Baseline method for the personalized strategies in this repository. It follows the ordinary FedAvg workflow while providing the shared starting point for client-specific adaptation.
+      reference: null
+    personalized:
+      order: 30
+      aliases: [personalized, finetune, fine_tune, fine-tune]
+      display_name: Fine-tuning
+      tags: [Personalization]
+      description: A shared federated model followed by local adaptation for each client.
+      reference: null
+    ditto:
+      order: 40
+      aliases: [ditto]
+      display_name: Ditto
+      tags: [Personalization]
+      description: Learns a personalized model for every client while coupling local optimization to a shared model.
+      reference: {label: "Li et al., ICML 2021", url: "https://arxiv.org/abs/2012.04221"}
+    fedrep:
+      order: 50
+      aliases: [fedrep, fed_rep]
+      display_name: FedRep
+      tags: [Personalization]
+      description: Separates a globally shared representation from client-specific prediction heads.
+      reference: {label: "Collins et al., ICML 2021", url: "https://arxiv.org/abs/2102.07078"}
+    fedamp:
+      order: 60
+      aliases: [fedamp, fed_amp]
+      display_name: FedAMP
+      tags: [Personalization]
+      description: Personalized federated learning through attentive message passing between similar client models.
+      reference: {label: "Huang et al., AAAI 2021", url: "https://arxiv.org/abs/2007.03797"}
+    pfedme:
+      order: 70
+      aliases: [pfedme, p_fed_me]
+      display_name: pFedMe
+      tags: [Personalization]
+      description: A bi-level personalized FL method based on Moreau-envelope regularization.
+      reference: {label: "Dinh et al., NeurIPS 2020", url: "https://arxiv.org/abs/2006.08848"}
+    fltrust:
+      order: 80
+      aliases: [fltrust, fl_trust]
+      display_name: FLTrust
+      tags: [Byzantine]
+      description: Uses a small clean server-side reference dataset to score and weight client updates.
+      requirements: {requires_trust_dataset: true}
+      reference: {label: "Cao et al., NDSS 2021", url: "https://arxiv.org/abs/2012.13995"}
+    zeno:
+      order: 90
+      aliases: [zeno]
+      display_name: Zeno
+      tags: [Byzantine]
+      description: Scores candidate updates by their estimated server-objective contribution before aggregation.
+      reference: {label: "Xie, Koyejo, and Gupta, ICML 2019", url: "https://arxiv.org/abs/1805.10032"}
+    central_clip:
+      order: 100
+      aliases: [central_clip, centered_clipping, centeredclip, cc]
+      display_name: Centered Clipping
+      tags: [Byzantine]
+      description: Robustly clips client updates around an aggregation center to limit outlying influence.
+      reference: {label: "Karimireddy, He, and Jaggi, ICML 2021", url: "https://arxiv.org/abs/2012.10333"}
+    safeguard:
+      order: 110
+      aliases: [safeguard, safeguard_sgd]
+      display_name: Safeguard
+      tags: [Byzantine]
+      description: Byzantine-resilient optimization based on concentration filtering of suspicious gradients.
+      reference: {label: "Allen-Zhu et al., ICLR 2021", url: "https://arxiv.org/abs/2012.14368"}
+    recess:
+      order: 120
+      aliases: [recess]
+      display_name: RECESS
+      tags: [Byzantine]
+      description: Proactively evaluates clients with constructed aggregation directions and accumulates trust scores.
+      reference: {label: "Yan et al., NeurIPS 2023", url: "https://arxiv.org/abs/2310.05431"}
+    bant:
+      order: 130
+      aliases: [bant]
+      display_name: BANT
+      tags: [Byzantine]
+      description: Byzantine defense combining a trial function with client trust scores.
+      reference: {label: "Molodtsov et al., AAAI 2026", url: "https://doi.org/10.1609/aaai.v40i29.39625"}
+    autobant:
+      order: 140
+      aliases: [autobant, auto_bant]
+      display_name: AutoBANT
+      tags: [Byzantine]
+      description: BANT-family method that optimizes client aggregation weights through an auxiliary objective.
+      reference: {label: "Molodtsov et al., AAAI 2026", url: "https://doi.org/10.1609/aaai.v40i29.39625"}
+    simbant:
+      order: 150
+      aliases: [simbant, sim_bant]
+      display_name: SimBANT
+      tags: [Byzantine]
+      description: BANT-family variant using similarity on server-side validation data for trust scores.
+      reference: {label: "Molodtsov et al., AAAI 2026", url: "https://doi.org/10.1609/aaai.v40i29.39625"}
+    byz_vr_marina_pp:
+      order: 160
+      aliases: [byz_vr_marina_pp, byz_vr_marina, vr_marina, vrmarina]
+      display_name: Byz-VR-MARINA
+      tags: [Byzantine]
+      description: Byzantine-robust variance-reduced optimization with optional compression.
+      reference: {label: "Gorbunov et al., ICLR 2023", url: "https://arxiv.org/abs/2206.00529"}
+  client_selector:
+    uniform: {order: 10, aliases: [uniform, random, random_uniform], display_name: Uniform, description: "Randomly samples participating clients without using their current loss or data composition.", reference: {label: "FedAvg — McMahan et al., AISTATS 2017", url: "https://arxiv.org/abs/1602.05629"}}
+    pow: {order: 20, aliases: [pow, pow_d, pow-d, power_of_choice], display_name: "Power-of-Choice (POW-D)", description: "Biases participation toward clients with larger local loss among a candidate set.", reference: {label: "Cho, Wang, and Joshi", url: "https://arxiv.org/abs/2010.01243"}}
+    fedcor: {order: 30, aliases: [fedcor, fed_cor], display_name: FedCor, description: "Models correlations between client losses to select clients expected to reduce the objective.", reference: {label: "Tang et al., CVPR 2022", url: "https://arxiv.org/abs/2103.13822"}}
+    fedcbs: {order: 40, aliases: [fedcbs, fed_cbs, fed-cbs], display_name: Fed-CBS, description: "Selects a client subset with more class-balanced combined data under non-IID sampling.", reference: {label: "Zhang et al., ICML 2023", url: "https://arxiv.org/abs/2209.15245"}}
+    delta: {order: 50, aliases: [delta], display_name: DELTA, description: "Unbiased client sampling that accounts for diversity and local variance.", reference: {label: "Wang et al.", url: "https://arxiv.org/abs/2205.13925"}}
+    byzant_client: {order: 60, aliases: [byzant_client, byzant-client], display_name: "Byzant Client", description: "Custom selector for Byzantine-robustness studies. In every round it guarantees that the requested number of Byzantine clients is included in the selected client set.", reference: null}
+  dataset:
+    cifar10: {order: 10, aliases: [cifar10, cifar_10, cifar-10], display_name: CIFAR-10, description: "60,000 32×32 color images from 10 classes; a compact benchmark for federated optimization, heterogeneity and robustness.", reference: {label: "CIFAR-10 dataset", url: "https://www.cs.toronto.edu/~kriz/cifar.html"}}
+    cifar100: {order: 15, aliases: [cifar100, cifar_100, cifar-100], display_name: CIFAR-100, description: "A standard image-classification benchmark with 100 fine-grained classes. Its larger label space than CIFAR-10 makes it useful for evaluating federated learning under more challenging class heterogeneity.", reference: {label: "CIFAR-100 dataset", url: "https://docs.ultralytics.com/ru/datasets/classify/cifar100/"}}
+    synthetic_2d: {order: 22, aliases: [synthetic_2d, synthetic-2d], display_name: "Synthetic 2D", description: "Reproducible balanced binary toy dataset: two Gaussian clouds in a two-dimensional feature space. It isolates the interaction between client selection, a binary label-flip attack and robust aggregation without image-data overhead.", reference: null}
+    personalization_2d: {order: 25, aliases: [personalization_2d, personalization-2d], display_name: "Personalization 2D", description: "Synthetic binary dataset with a shared invariant feature and an alternating client-specific contextual feature. It is designed to make the benefit of personalized representations and heads observable in a small, reproducible experiment.", reference: null}
+    ptbxl: {order: 20, aliases: [ptbxl, ptb_xl, ptb-xl], display_name: PTB-XL, description: "A large clinical ECG dataset with 12-lead recordings and detailed diagnostic annotations.", reference: {label: "PTB-XL on PhysioNet", url: "https://physionet.org/content/ptb-xl/"}, paper_reference: {label: "Wagner et al., Scientific Data 2020", url: "https://doi.org/10.1038/s41597-020-0495-6"}}
+    tiny_imagenet: {order: 30, aliases: [tiny_imagenet, tiny-imagenet], display_name: Tiny ImageNet, description: "A compact ImageNet subset with 100,000 64×64 color images across 200 classes: 500 training, 50 validation and 50 test images per class.", reference: {label: "ImageNet", url: "https://www.image-net.org/"}}
+  model:
+    logistic_regression: {order: 10, aliases: [logistic_regression, logistic-regression], display_name: "Logistic Regression", description: "A single linear classifier over two input features. Used by the interdependency toy example so that the effect of adversarial labels and client selection is easy to interpret.", reference: null}
+    factorized_linear: {order: 20, aliases: [factorized_linear, factorized-linear], display_name: "Factorized Linear", description: "A two-stage linear model with an identity-initialized representation and a classification head. It exposes a natural shared-representation/local-head split for the personalization toy examples.", reference: null}
+  attack:
+    no_attack: {order: 0, aliases: [no_attack], display_name: "No Attack", description: "Run the experiment without adversarial clients.", reference: null}
+    binary_label_flip: {order: 5, aliases: [binary_label_flip, binary-label-flip], display_name: "Binary Label Flip", description: "For binary tasks, malicious clients deterministically swap labels 0 and 1 in their local training data. This makes the attack effect clear and reproducible in the Synthetic 2D toy experiment.", reference: null}
+    label_flip: {order: 10, aliases: [label_flip, labelflip, label_flipping], display_name: "Label Flip", description: "Malicious clients modify labels before computing their updates.", reference: {label: "Tolpegin et al., ESORICS 2020", url: "https://arxiv.org/abs/2007.08432"}}
+    sign_flip: {order: 20, aliases: [sign_flip, signflip, sign_flipping], display_name: "Sign Flip", description: "Malicious clients reverse the direction of their model update.", reference: {label: "Damaskinos et al., ICML 2018", url: "https://proceedings.mlr.press/v80/damaskinos18a.html"}}
+    random_grad: {order: 30, aliases: [random_grad, random_gradient, random_gradients], display_name: "Random Gradients", description: "Malicious clients replace legitimate updates with random or noise-like gradients.", reference: {label: "Benchmark used in BANT experiments", url: "https://doi.org/10.1609/aaai.v40i29.39625"}}
+    alie: {order: 40, aliases: [alie, a_little_is_enough, little_is_enough], display_name: ALIE, description: "Crafts scaled malicious updates intended to evade simple outlier defenses.", reference: {label: "Baruch, Baruch, and Goldberg, NeurIPS 2019", url: "https://arxiv.org/abs/1902.06156"}}
+    ipm: {order: 50, aliases: [ipm, inner_product_manipulation], display_name: "Inner Product Manipulation (IPM)", description: "Constructs updates that undermine the aggregated descent direction.", reference: {label: "Xie, Koyejo, and Gupta, UAI 2020", url: "https://arxiv.org/abs/1903.03936"}}
+  preaggregator:
+    none: {order: 0, aliases: [""], display_name: "None", description: "Pass client updates directly to the selected aggregation method.", reference: null}
+    bucketing: {order: 10, aliases: [bucketing, bucket], display_name: Bucketing, description: "Groups client updates into buckets before robust aggregation.", reference: {label: "Karimireddy, He, and Jaggi, ICLR 2022", url: "https://arxiv.org/abs/2006.09365"}}
+    fbm: {order: 20, aliases: [fbm, fixing_by_mixing, fixing-by-mixing, nnm], display_name: "Fixing by Mixing", description: "Mixes nearby client updates before robust aggregation under heterogeneous data.", reference: {label: "Allouah et al., AISTATS 2023", url: "https://arxiv.org/abs/2302.01772"}}

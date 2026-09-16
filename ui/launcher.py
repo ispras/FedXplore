@@ -20,6 +20,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 try:
+    from .provenance import write_provenance
+except ImportError:  # pragma: no cover - supports `streamlit run ui/run_ui.py`
+    from provenance import write_provenance
+
+try:
     import yaml
 except ImportError:  # pragma: no cover - exercised only in bare environments
     yaml = None
@@ -27,7 +32,7 @@ except ImportError:  # pragma: no cover - exercised only in bare environments
 RUNS_RELATIVE_DIR = Path("outputs/ui/runs")
 DEFAULT_RUN_NAME = "fedxplore_run"
 DEFAULT_MLFLOW_REMOTE_URI = ""
-DEFAULT_LOCAL_MLFLOW_UI_URL = "http://127.0.0.1:5000/"
+DEFAULT_LOCAL_MLFLOW_UI_URL = "http://127.0.0.1:6123/"
 STOP_TERM_RETRY_SECONDS = 6
 STOP_FORCE_KILL_SECONDS = 18
 PROXY_ENV_KEYS = (
@@ -156,6 +161,7 @@ def sanitize_run_name(name: str) -> str:
 
 
 def preview_stdout_path(repo_root: Path, run_name: str) -> Path:
+    """Return the base path shown before a new launch obtains its run ID."""
     return build_user_log_path(repo_root, run_name)
 
 
@@ -164,10 +170,21 @@ def now_run_id(run_name: str) -> str:
     return f"{timestamp}_{sanitize_run_name(run_name)}"
 
 
-def build_user_log_path(repo_root: Path, run_name: str) -> Path:
+def build_user_log_path(
+    repo_root: Path,
+    run_name: str,
+    *,
+    run_id: str | None = None,
+) -> Path:
     outputs_dir = repo_root / "outputs"
     outputs_dir.mkdir(parents=True, exist_ok=True)
-    return outputs_dir / f"{sanitize_run_name(run_name)}.txt"
+    safe_name = sanitize_run_name(run_name)
+    if run_id:
+        # The training logger replaces this file with a symlink to Hydra's
+        # output.txt.  Keeping it unique prevents a later run with the same
+        # display name from silently rewriting an older run's log/MLflow ID.
+        return outputs_dir / f"{safe_name}__{sanitize_run_name(run_id)}.txt"
+    return outputs_dir / f"{safe_name}.txt"
 
 
 def discover_config_group_options(
@@ -286,7 +303,14 @@ def get_component_default_params(
         raw_config,
         component_name=component_name,
     )
-    return flatten_mapping(cleaned_config)
+    # Nested component configs (for example loss.config._target_) are
+    # implementation wiring selected by the Hydra group, not UI parameters.
+    # Omitting them keeps both the editor and generated overrides stable.
+    return {
+        path: value
+        for path, value in flatten_mapping(cleaned_config).items()
+        if path.split(".")[-1] not in HYDRA_IGNORED_KEYS
+    }
 
 
 def format_hydra_value(value: Any) -> str:
@@ -503,24 +527,24 @@ def send_signal_to_run(status: dict[str, Any], signum: int) -> bool:
 
 
 def extract_mlflow_run_url_from_text(text: str) -> str:
-    match = MLFLOW_RUN_URL_PATTERN.search(text)
-    if match is None:
+    matches = MLFLOW_RUN_URL_PATTERN.findall(text)
+    if not matches:
         return ""
-    return match.group(1).strip()
+    return matches[-1].strip()
 
 
 def extract_mlflow_run_id_from_text(text: str) -> str:
-    match = MLFLOW_RUN_ID_PATTERN.search(text)
-    if match is None:
+    matches = MLFLOW_RUN_ID_PATTERN.findall(text)
+    if not matches:
         return ""
-    return match.group(1).strip()
+    return matches[-1].strip()
 
 
 def extract_mlflow_experiment_id_from_text(text: str) -> str:
-    match = MLFLOW_EXPERIMENT_ID_PATTERN.search(text)
-    if match is None:
+    matches = MLFLOW_EXPERIMENT_ID_PATTERN.findall(text)
+    if not matches:
         return ""
-    return match.group(1).strip()
+    return matches[-1].strip()
 
 
 def build_mlflow_run_url(
@@ -597,7 +621,27 @@ def persist_mlflow_metadata(
     return updated_status
 
 
+def is_mlflow_run_spec(spec: dict[str, Any]) -> bool:
+    """Whether a saved UI specification explicitly selected the MLflow logger."""
+
+    payload = spec.get("form_payload")
+    if isinstance(payload, dict):
+        selected_groups = payload.get("selected_groups")
+        if isinstance(selected_groups, dict) and "logger" in selected_groups:
+            return str(selected_groups.get("logger") or "").strip() == "mlflow"
+
+    overrides = spec.get("overrides")
+    if isinstance(overrides, list):
+        return _selected_logger_from_overrides([str(item) for item in overrides]) == "mlflow"
+    return False
+
+
 def update_mlflow_url_from_log(run_dir: Path, status: dict[str, Any]) -> dict[str, Any]:
+    # Base-logger runs can share old log files in legacy registries.  Never
+    # infer MLflow metadata for one unless its saved configuration opted in.
+    if not is_mlflow_run_spec(read_spec(run_dir)):
+        return status
+
     stdout_path = Path(str(status.get("stdout_path", "") or ""))
     if not stdout_path.is_file():
         return status
@@ -699,6 +743,15 @@ def build_overrides(form_values: dict[str, Any], raw_overrides: list[str]) -> li
 
         for path, value in base_params.items():
             overrides.append(f"{path}={format_hydra_value(value)}")
+
+        # Attack implementations load their defaults from ``configs/attacks``
+        # and then look for optional overrides in ``federated_params``.  These
+        # keys are not part of the base config, so Hydra needs the explicit
+        # ``+`` syntax when the UI supplies them.
+        for path, value in form_values.get("attack_params", {}).items():
+            overrides.append(
+                f"+federated_params.{path}={format_hydra_value(value)}"
+            )
 
         component_prefix_map = {
             "distribution": "distribution",
@@ -835,6 +888,144 @@ def read_spec(run_dir: Path) -> dict[str, Any]:
     if not spec_path.is_file():
         return {}
     return read_yaml_file(spec_path)
+
+
+def make_rerun_name(source_run_name: str) -> str:
+    """Create a display name that cannot reuse the source run's output log."""
+
+    source_name = sanitize_run_name(source_run_name)
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
+    return f"{source_name}_rerun_{timestamp}"
+
+
+def _overrides_from_spec(spec: dict[str, Any]) -> list[str]:
+    stored_overrides = spec.get("overrides")
+    if isinstance(stored_overrides, list) and stored_overrides:
+        return [str(item) for item in stored_overrides]
+
+    # A few very early UI records only have argv.  It is still a structured
+    # list, unlike the shell command, so it is safe to reconstruct from it.
+    argv = spec.get("argv")
+    if isinstance(argv, list):
+        for index, value in enumerate(argv):
+            if str(value).replace("\\", "/").endswith("src/train.py"):
+                return [str(item) for item in argv[index + 1 :]]
+    return []
+
+
+def _selected_logger_from_overrides(overrides: list[str]) -> str:
+    logger_name = ""
+    for raw_override in overrides:
+        if extract_override_key(raw_override) != "logger":
+            continue
+        if "=" in raw_override:
+            logger_name = raw_override.split("=", 1)[1].strip()
+    return logger_name
+
+
+def _override_value(overrides: list[str], key: str) -> str:
+    value = ""
+    for raw_override in overrides:
+        if extract_override_key(raw_override) != key or "=" not in raw_override:
+            continue
+        value = raw_override.split("=", 1)[1].strip()
+    return value
+
+
+def build_rerun_request(source_run_dir: Path) -> dict[str, Any]:
+    """Reconstruct a safe launch request from a saved experiment specification.
+
+    Only the saved Hydra overrides are reused.  Run identifiers, paths,
+    MLflow IDs and historical provenance are intentionally not copied; the
+    subsequent ``start_run`` call creates those again for the current checkout.
+    """
+
+    source_run_dir = Path(source_run_dir)
+    source_spec = read_spec(source_run_dir)
+    overrides = _overrides_from_spec(source_spec)
+    if not overrides:
+        raise ValueError("This run has no saved Hydra overrides to re-run.")
+
+    source_run_id = str(source_spec.get("run_id") or source_run_dir.name)
+    source_run_name = str(source_spec.get("run_name") or source_run_id)
+    run_name = make_rerun_name(source_run_name)
+    selected_logger = _selected_logger_from_overrides(overrides)
+
+    # The MLflow name is an execution identity rather than an experiment
+    # parameter.  Replace it rather than appending a duplicate override.
+    if selected_logger == "mlflow" or any(
+        extract_override_key(item) == "logger.run_name" for item in overrides
+    ):
+        overrides = [
+            item
+            for item in overrides
+            if extract_override_key(item) != "logger.run_name"
+        ]
+        overrides.append(f"logger.run_name={format_hydra_value(run_name)}")
+
+    form_payload = source_spec.get("form_payload")
+    copied_payload = dict(form_payload) if isinstance(form_payload, dict) else {}
+    if copied_payload:
+        copied_payload["run_name"] = run_name
+
+    spec_data: dict[str, Any] = {
+        "rerun_of": source_run_id,
+        "rerun_source_name": source_run_name,
+    }
+    for key in (
+        "raw_overrides_text",
+        "template_overrides_text",
+        "ui_state_snapshot",
+    ):
+        if key in source_spec:
+            spec_data[key] = source_spec[key]
+    if copied_payload:
+        spec_data["form_payload"] = copied_payload
+
+    tracking_uri = ""
+    if selected_logger == "mlflow":
+        component_params = copied_payload.get("component_params", {})
+        if isinstance(component_params, dict):
+            logger_params = component_params.get("logger", {})
+            if isinstance(logger_params, dict):
+                tracking_uri = str(logger_params.get("tracking_uri") or "").strip()
+        # A raw/template override is part of the saved launch contract and
+        # must win over the form snapshot used only to reconstruct UI state.
+        tracking_uri = _override_value(overrides, "logger.tracking_uri") or tracking_uri
+
+    subprocess_env = None
+    bypass_hosts: list[str] = []
+    if selected_logger == "mlflow":
+        subprocess_env, bypass_hosts = build_subprocess_env(
+            disable_proxy=True,
+            mlflow_tracking_uri=tracking_uri,
+        )
+        if bypass_hosts:
+            spec_data["proxy_bypass_hosts"] = bypass_hosts
+
+    return {
+        "run_name": run_name,
+        "overrides": overrides,
+        # A previous per-run URL encodes the old MLflow run ID.  Let the new
+        # run discover its own URL from stdout instead of copying it.
+        "mlflow_url": None,
+        "subprocess_env": subprocess_env,
+        "spec_data": spec_data,
+    }
+
+
+def rerun_saved_run(repo_root: Path, source_run_dir: Path) -> dict[str, Any]:
+    """Launch a fresh run from stored overrides through the regular launcher."""
+
+    request = build_rerun_request(source_run_dir)
+    return start_run(
+        repo_root=repo_root,
+        run_name=str(request["run_name"]),
+        overrides=list(request["overrides"]),
+        mlflow_url=request["mlflow_url"],
+        subprocess_env=request["subprocess_env"],
+        spec_data=dict(request["spec_data"]),
+    )
 
 
 def read_status(run_dir: Path) -> dict[str, Any]:
@@ -995,11 +1186,19 @@ def start_run(
     run_dir = create_run_dir(repo_root, base_run_id)
     run_id = run_dir.name
     cmd = build_command(repo_root, overrides)
-    stdout_path = build_user_log_path(repo_root, run_name)
+    stdout_path = build_user_log_path(repo_root, run_name, run_id=run_id)
     stderr_path = stdout_path
     shell_command = format_manual_shell_command(cmd, stdout_path)
     created_at = iso_now()
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    provenance_error = ""
+    try:
+        # This happens before Popen so the snapshot describes the source tree
+        # that was actually used to launch the experiment, not a later view.
+        write_provenance(run_dir, repo_root)
+    except OSError as exc:
+        # Storage errors should not make a long experiment impossible to run.
+        provenance_error = str(exc)
 
     spec_payload = {
         "run_id": run_id,
@@ -1015,6 +1214,8 @@ def start_run(
     }
     if spec_data:
         spec_payload.update(spec_data)
+    if provenance_error:
+        spec_payload["provenance_capture_error"] = provenance_error
 
     write_yaml_or_json(run_dir / "spec.yaml", spec_payload)
 
@@ -1032,6 +1233,10 @@ def start_run(
     run_stdout_link.symlink_to(stdout_path)
 
     stdout_handle = stdout_path.open("w", encoding="utf-8", buffering=1)
+    lineage_status = {}
+    rerun_of = str(spec_payload.get("rerun_of") or "").strip()
+    if rerun_of:
+        lineage_status["rerun_of"] = rerun_of
     try:
         process = subprocess.Popen(
             cmd,
@@ -1059,6 +1264,7 @@ def start_run(
             "stderr_path": str(stderr_path),
             "mlflow_url": mlflow_url,
             "error": str(exc),
+            **lineage_status,
         }
         write_status(run_dir, status)
         append_run_event(
@@ -1089,6 +1295,7 @@ def start_run(
         "stderr_path": str(stderr_path),
         "mlflow_url": mlflow_url,
         "process_group_id": process_group_id,
+        **lineage_status,
     }
     write_status(run_dir, status)
     append_run_event(

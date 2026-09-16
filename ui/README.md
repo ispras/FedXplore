@@ -31,30 +31,37 @@ The default page contains:
 
 - summary cards for total runs / running / stopping
 - one run table with name, method, dataset, created time, duration, status, clients, and rounds
+- a hover-revealed selection checkbox for each run (the layout does not shift)
 - `Create Run` action
 
 Every row can be opened as a dedicated run page.
+
+Select two or more runs to enable `Compare selected` in the page header. The comparison URL keeps
+the selected run IDs, so a comparison can be bookmarked or shared. A single
+run page also has a `Compare` action that opens the same view with only that
+run preselected. The comparison page uses compact selected-run cards and an
+`Add a run` picker; returning to Dashboard clears the temporary comparison
+selection.
 
 ### Create Run
 
 The create page is split into sections:
 
 1. `Template`
-2. `Run`
-3. `Setup`
-4. `Method`
-5. `Logging`
-6. `Training & Other`
-7. `Attacks`
-   This step exposes `clients_attack_types` and the base attack schedule fields from Hydra.
-8. `Technical`
-9. `Launch`
+2. `Experiment`
+3. `Data & Clients`
+4. `FL Method`
+5. `Training`
+6. `Attacks & Robustness`
+7. `Tracking & Evaluation`
+8. `Runtime & Resources`
+9. `Review & Launch`
 
-Navigation between steps is done through the step selector and `Back` / `Next` buttons.
+Navigation between steps is done through the clickable step selector and `Back` / `Next` buttons. The desktop layout keeps a compact Experiment Summary visible beside the current form; it reflects only high-signal research settings, not raw config paths.
 
 The form is seeded from the repo Hydra defaults, so clicking through the default selections keeps you close to the baseline `python src/train.py` behavior.
 
-The create page also shows the exact shell command that can be copied and started manually.
+The Review & Launch step shows the exact shell command that can be copied and started manually. Less frequently changed component parameters are kept under consistent Advanced settings expanders.
 
 The `Technical` step provides a CPU / CUDA switch and GPU `device_ids` selection based on the GPUs visible via `nvidia-smi`.
 
@@ -65,28 +72,57 @@ Override priority is: template overrides, then structured form values, then manu
 Each run opens on its own page with:
 
 - header with run name, status, and control buttons
-- `Logs` tab
+- `Analytics` tab (the default)
 - `Parameters` tab with structured subtabs
-- `Journal` tab
-- `Files` tab
-- `Overview` tab
+- `Git` tab
+- `Logs`, `Journal`, `Files`, and `Overview` tabs
 
 Available controls:
 
 - `Stop`
 - `Clone`
-- `Dashboard`
+- `Re-run`
+- `Compare`
+- `Create Run` (primary action)
 - `MLflow` link when available
 
 `Clone` restores the same UI state into the create page and does not auto-start a new process.
+
+`Re-run` immediately starts a new experiment from the source run's saved Hydra
+overrides. It creates a fresh run ID/name and records `rerun_of` in its saved
+metadata. It uses the currently checked-out FedXplore source code; it does not
+check out or restore the source run's historical Git commit.
+
+### Analytics and comparison
+
+For MLflow runs, `Analytics` discovers metric names dynamically and reads their
+full MLflow metric histories. It plots selected metrics in compact Plotly chart
+cards against MLflow step;
+when steps are missing or uninformative it uses timestamps. Completed runs also
+show a final-metrics table, where “final” means the latest recorded history
+point. Use `Refresh` for a run that is still logging.
+
+The comparison view overlays selected metrics for all selected runs in the same
+chart cards, presents their latest metric values side by side, and compares
+saved Hydra overrides. Only differing configuration values are shown by
+default; enable `Show unchanged` to inspect the full saved configuration. Metrics missing
+from a run display as `N/A`.
+
+MLflow is optional. Runs without an MLflow logger/ID, runs that are still
+starting, unavailable tracking stores, and legacy runs without MLflow metadata
+remain inspectable and show an explanatory empty state instead of failing.
 
 ## Logs and run files
 
 The main training log is written to:
 
 ```text
-outputs/<run_name>.txt
+outputs/<run_name>__<run_id>.txt
 ```
+
+The unique run-ID suffix prevents a later launch with the same display name
+from replacing an older run's log. Legacy runs can still point to the older
+`outputs/<run_name>.txt` format.
 
 The run registry for the UI is stored in:
 
@@ -104,8 +140,24 @@ Inside that directory the UI keeps:
 - `stderr.txt`
 - `events.jsonl`
 - `mlflow_url.txt` when present
+- `provenance.json` for newly launched runs
+- `git_diff.patch`, `git_diff_staged.patch`, and `git_diff_unstaged.patch`
+  when provenance is captured
 
 `stdout.txt` and `stderr.txt` point to the same primary log file.
+
+### Git provenance
+
+Every newly launched run captures Git provenance before its training process is
+started. The snapshot records repository root, branch, full and short commit,
+detached-HEAD state, `git describe`, origin URL, dirty state, porcelain status,
+and modified/staged/unstaged/untracked file lists. Tracked changes are stored
+as separate patch files; untracked file contents are intentionally not copied.
+
+The `Git` tab displays only this saved snapshot. If a run was created
+before provenance support, it says `Provenance was not captured for this run.`
+and never substitutes the current repository state. Large patch previews are
+truncated in that tab; full patches can be downloaded from `Files`.
 
 ## MLflow
 
@@ -167,4 +219,7 @@ This UI follows the current `FedXplore` config layout:
 - no authentication
 - no GPU locking
 - no full Hydra schema auto-generation
-- no advanced run comparison yet
+- native analytics currently use MLflow scalar metric histories; non-MLflow
+  logs are not parsed into charts
+- Re-run intentionally uses the current checkout rather than automatically
+  restoring a historical Git revision

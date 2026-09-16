@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -10,6 +12,34 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 import yaml
+
+try:
+    from .analytics import (
+        load_final_metrics,
+        load_metric_histories,
+        metric_names as available_metric_names,
+        metric_points_frame,
+    )
+    from .comparison import build_config_diff, experiment_config_from_spec
+    from .provenance import load_provenance
+    from .styles import inject_global_styles, render_final_metrics_table, render_metric_chart_card
+    from .create_run import build_experiment_summary, initial_dataset_roles, readable_label, readable_option, validate_experiment_state
+    from .research_catalog import load_research_catalog, metadata_for, ordered_options
+except ImportError:  # pragma: no cover - supports `streamlit run ui/run_ui.py`
+    ui_dir = str(Path(__file__).resolve().parent)
+    if ui_dir not in sys.path:
+        sys.path.insert(0, ui_dir)
+    from analytics import (
+        load_final_metrics,
+        load_metric_histories,
+        metric_names as available_metric_names,
+        metric_points_frame,
+    )
+    from comparison import build_config_diff, experiment_config_from_spec
+    from provenance import load_provenance
+    from styles import inject_global_styles, render_final_metrics_table, render_metric_chart_card
+    from create_run import build_experiment_summary, initial_dataset_roles, readable_label, readable_option, validate_experiment_state
+    from research_catalog import load_research_catalog, metadata_for, ordered_options
 
 try:
     from .launcher import (
@@ -43,6 +73,7 @@ try:
         read_run_events,
         read_status,
         read_spec,
+        rerun_saved_run,
         start_run,
         stop_run,
         tail_file,
@@ -80,6 +111,7 @@ except ImportError:
         read_run_events,
         read_status,
         read_spec,
+        rerun_saved_run,
         start_run,
         stop_run,
         tail_file,
@@ -91,8 +123,16 @@ VIEW_KEY = "ui_view"
 VIEW_DASHBOARD = "dashboard"
 VIEW_CREATE = "create_run"
 VIEW_RUN = "run_detail"
+VIEW_COMPARE = "compare"
 
 SELECTED_RUN_KEY = "ui_selected_run_id"
+COMPARE_RUN_IDS_KEY = "ui_compare_run_ids"
+COMPARE_PICKER_KEY = "ui_compare_picker"
+COMPARE_ADD_RUN_KEY = "ui_compare_add_run"
+COMPARE_ADD_RUN_MAP_KEY = "ui_compare_add_run_map"
+COMPARE_DASHBOARD_SYNC_KEY = "ui_compare_dashboard_sync"
+COMPARE_CHECKBOX_PREFIX = "ui_compare_select_"
+FLASH_MESSAGE_KEY = "ui_flash_message"
 LAST_LINES_KEY = "ui_last_log_lines"
 TEMPLATE_PICKER_KEY = "ui_template_picker"
 LOADED_TEMPLATE_KEY = "ui_loaded_template"
@@ -103,6 +143,8 @@ PENDING_STEP_KEY = "ui_pending_target_step"
 DEVICE_MODE_KEY = "ui_device_mode"
 DEVICE_IDS_KEY = "ui_device_ids_selected"
 ATTACK_TYPE_KEY = "ui_attack_type"
+DATASET_BASE_KEY = "ui_dataset_base"
+DATASET_ROLE_BASE_KEY = "ui_dataset_roles_initialized_for"
 TEMPLATE_OVERRIDES_KEY = "ui_template_overrides_text"
 DASHBOARD_NAME_FILTER_KEY = "ui_dashboard_filter_name"
 DASHBOARD_METHOD_FILTER_KEY = "ui_dashboard_filter_method"
@@ -117,6 +159,12 @@ PENDING_BROWSER_OPEN_NONCE_KEY = "ui_pending_browser_open_nonce"
 GENERAL_UI_KEYS = {
     VIEW_KEY,
     SELECTED_RUN_KEY,
+    COMPARE_RUN_IDS_KEY,
+    COMPARE_PICKER_KEY,
+    COMPARE_ADD_RUN_KEY,
+    COMPARE_ADD_RUN_MAP_KEY,
+    COMPARE_DASHBOARD_SYNC_KEY,
+    FLASH_MESSAGE_KEY,
     LAST_LINES_KEY,
     TEMPLATE_PICKER_KEY,
     LOADED_TEMPLATE_KEY,
@@ -174,11 +222,28 @@ SETUP_BASE_PATHS = [
     "federated_params.local_epochs",
     "federated_params.client_train_val_prop",
 ]
+FEDERATION_BASE_PATHS = [
+    "federated_params.amount_of_clients",
+    "federated_params.client_subset_size",
+    "federated_params.communication_rounds",
+    "federated_params.local_epochs",
+]
+DATA_LOADING_BASE_PATHS = [
+    "training_params.batch_size",
+    "training_params.num_workers",
+    "federated_params.client_train_val_prop",
+]
 OTHER_BASE_PATHS = [
     "federated_params.print_client_metrics",
     "federated_params.server_saving_metrics",
     "federated_params.server_saving_agg",
 ]
+NO_ATTACK_BASE_PARAMS = {
+    "federated_params.clients_attack_types": "no_attack",
+    "federated_params.prop_attack_clients": 0.0,
+    "federated_params.attack_scheme": "no_attack",
+    "federated_params.prop_attack_rounds": 0.0,
+}
 PARAMETER_TAB_COMPONENTS = [
     ("Setup", ["distribution", "model", "model_trainer"]),
     ("Method", ["federated_method", "client_selector", "preaggregator"]),
@@ -189,31 +254,27 @@ PARAMETER_TAB_COMPONENTS = [
 ]
 CREATE_STEPS = [
     "template",
-    "run",
-    "setup",
     "method",
-    "logging",
-    "training",
+    "selector",
+    "dataset",
     "attacks",
-    "technical",
+    "setup",
     "launch",
 ]
 CREATE_STEP_LABELS = {
     "template": "1. Template",
-    "run": "2. Run",
-    "setup": "3. Setup",
-    "method": "4. Method",
-    "logging": "5. Logging",
-    "training": "6. Training",
-    "attacks": "7. Attacks",
-    "technical": "8. Technical",
-    "launch": "9. Launch",
+    "method": "2. FL Method",
+    "selector": "3. Client Selection",
+    "dataset": "4. Dataset",
+    "attacks": "5. Attacks",
+    "setup": "6. Experiment Setup",
+    "launch": "7. Review & Launch",
 }
 
-BRAND_FED_COLOR = "rgb(44, 125, 160)"
-BRAND_XPLORE_COLOR = "rgb(255, 102, 102)"
-APP_BACKGROUND_COLOR = "#B9E0A5"
-APP_TEXT_COLOR = "#173456"
+BRAND_FED_COLOR = "#111827"
+BRAND_XPLORE_COLOR = "#111827"
+APP_BACKGROUND_COLOR = "#F7F8FA"
+APP_TEXT_COLOR = "#111827"
 
 
 def rerun_app() -> None:
@@ -288,6 +349,35 @@ def install_keyboard_guard() -> None:
     )
 
 
+def install_history_navigation_sync() -> None:
+    """Reload Streamlit after browser Back/Forward changes query parameters.
+
+    Streamlit updates the address bar for our view routing, but a browser
+    history navigation does not always trigger a script rerun by itself.
+    """
+
+    components.html(
+        """
+        <script>
+        (function () {
+          const appWindow = window.parent;
+          if (appWindow.__fedxploreHistorySyncInstalled) {
+            return;
+          }
+          appWindow.__fedxploreHistorySyncInstalled = true;
+          appWindow.addEventListener("popstate", function () {
+            appWindow.setTimeout(function () {
+              appWindow.location.reload();
+            }, 0);
+          });
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
 def brand_markup(*, suffix: str = "", level: int = 2) -> str:
     safe_level = min(max(level, 1), 6)
     suffix_html = f" <span class='fx-brand-suffix'>{suffix}</span>" if suffix else ""
@@ -307,20 +397,18 @@ def install_button_palette_hook() -> None:
         (function () {
           const rootDoc = window.parent.document;
           const labelsToClass = {
-            "Dashboard": "fx-button-dashboard",
-            "Create Run": "fx-button-create-run",
-            "Load": "fx-button-fed",
-            "Reset": "fx-button-fed",
-            "Next": "fx-button-fed",
-            "Back": "fx-button-fed"
+            "Create Run": "fx-button-primary",
+            "Run": "fx-button-primary",
+            "Launch experiment": "fx-button-primary",
+            "Compare selected": "fx-button-primary",
+            "Stop": "fx-button-danger"
           };
 
           const syncButtonClasses = function () {
             rootDoc.querySelectorAll("button").forEach(function (button) {
               button.classList.remove(
-                "fx-button-dashboard",
-                "fx-button-create-run",
-                "fx-button-fed"
+                "fx-button-primary",
+                "fx-button-danger"
               );
               const label = (button.innerText || button.textContent || "").trim();
               const className = labelsToClass[label];
@@ -443,28 +531,28 @@ def install_sidebar_controller(*, auto_expand: bool) -> None:
                   min-width: 2.9rem;
                   height: 2.8rem;
                   padding: 0 0.72rem;
-                  border: 1px solid rgba(45, 109, 246, 0.18);
+                  border: 1px solid rgba(15, 118, 110, 0.24);
                   border-radius: 999px;
                   background: rgba(255, 255, 255, 0.96);
-                  color: #173456;
+                  color: #344054;
                   font-weight: 700;
                   font-size: 1rem;
                   letter-spacing: -0.08em;
-                  box-shadow: 0 14px 36px rgba(24, 61, 122, 0.16);
+                  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.12);
                   backdrop-filter: blur(12px);
                   cursor: pointer;
                   transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
               }}
               #fx-sidebar-toggle:hover {{
                   transform: translateY(-1px);
-                  border-color: rgba(45, 109, 246, 0.32);
-                  box-shadow: 0 18px 40px rgba(24, 61, 122, 0.22);
+                  border-color: rgba(15, 118, 110, 0.42);
+                  box-shadow: 0 10px 24px rgba(16, 24, 40, 0.16);
               }}
               .fx-sidebar-toggle-icon {{
                   display: inline-flex;
                   align-items: center;
                   justify-content: center;
-                  color: #2d6df6;
+                  color: #0F766E;
                   font-weight: 800;
                   line-height: 1;
               }}
@@ -553,16 +641,63 @@ def install_sidebar_controller(*, auto_expand: bool) -> None:
     )
 
 
-def sync_query_params(view: str, run_id: str | None = None) -> None:
+def normalize_compare_run_ids(run_ids: Any) -> list[str]:
+    """Normalize comparison selection while preserving its visible order."""
+
+    if isinstance(run_ids, str):
+        candidates = run_ids.split(",")
+    elif isinstance(run_ids, (list, tuple, set)):
+        candidates = run_ids
+    else:
+        candidates = []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        run_id = str(candidate or "").strip()
+        if run_id and run_id not in seen:
+            normalized.append(run_id)
+            seen.add(run_id)
+    return normalized
+
+
+def compare_checkbox_key(run_id: str) -> str:
+    return f"{COMPARE_CHECKBOX_PREFIX}{run_id}"
+
+
+def set_compare_run_ids(run_ids: Any, *, sync_picker: bool = True) -> list[str]:
+    normalized = normalize_compare_run_ids(run_ids)
+    st.session_state[COMPARE_RUN_IDS_KEY] = normalized
+    if sync_picker:
+        st.session_state[COMPARE_PICKER_KEY] = list(normalized)
+    st.session_state[COMPARE_DASHBOARD_SYNC_KEY] = None
+    return normalized
+
+
+def clear_compare_selection() -> None:
+    """Clear comparison state before returning to the independent run list."""
+
+    set_compare_run_ids([])
+
+
+def sync_query_params(
+    view: str,
+    run_id: str | None = None,
+    compare_run_ids: list[str] | None = None,
+) -> None:
+    compare_ids = normalize_compare_run_ids(compare_run_ids)
     if hasattr(st, "query_params"):
         st.query_params.clear()
         st.query_params["view"] = view
         if run_id:
             st.query_params["run_id"] = run_id
+        if compare_ids:
+            st.query_params["runs"] = ",".join(compare_ids)
         return
     params: dict[str, str] = {"view": view}
     if run_id:
         params["run_id"] = run_id
+    if compare_ids:
+        params["runs"] = ",".join(compare_ids)
     st.experimental_set_query_params(**params)
 
 
@@ -570,260 +705,22 @@ def restore_view_from_query_params() -> None:
     if hasattr(st, "query_params"):
         view = st.query_params.get("view", "")
         run_id = st.query_params.get("run_id", "")
+        compare_run_ids = st.query_params.get("runs", "")
     else:
         params = st.experimental_get_query_params()
         view = params.get("view", [""])[0]
         run_id = params.get("run_id", [""])[0]
-    if view in {VIEW_DASHBOARD, VIEW_CREATE, VIEW_RUN}:
+        compare_run_ids = params.get("runs", [""])[0]
+    if view in {VIEW_DASHBOARD, VIEW_CREATE, VIEW_RUN, VIEW_COMPARE}:
         st.session_state[VIEW_KEY] = view
     if run_id:
         st.session_state[SELECTED_RUN_KEY] = run_id
+    if compare_run_ids:
+        set_compare_run_ids(compare_run_ids)
 
 
 def apply_page_styles() -> None:
-    css = """
-        <style>
-        header[data-testid="stHeader"] {
-            display: none;
-        }
-        div[data-testid="stDecoration"] {
-            display: none;
-        }
-        .stApp {
-            background: __APP_BACKGROUND_COLOR__;
-            color: __APP_TEXT_COLOR__;
-        }
-        .main .block-container {
-            padding-top: 0.05rem !important;
-            padding-bottom: 1rem;
-            max-width: 1500px;
-        }
-        .fx-brand-title {
-            margin: 0;
-            line-height: 1.1;
-            font-weight: 800;
-        }
-        .fx-brand-fed {
-            color: __BRAND_FED_COLOR__;
-        }
-        .fx-brand-xplore {
-            color: __BRAND_XPLORE_COLOR__;
-        }
-        .fx-brand-suffix {
-            color: __APP_TEXT_COLOR__;
-        }
-        [data-testid="stSidebar"] {
-            background: __APP_BACKGROUND_COLOR__;
-            border-right: 1px solid rgba(23, 52, 86, 0.14);
-        }
-        .stButton > button {
-            background: __BRAND_FED_COLOR__;
-            color: white;
-            border: 0;
-            border-radius: 12px;
-            font-weight: 600;
-            min-height: 2.65rem;
-            box-shadow: 0 10px 26px rgba(44, 125, 160, 0.24);
-        }
-        .stButton > button:hover {
-            filter: brightness(1.02);
-        }
-        .stButton > button.fx-button-dashboard {
-            background: __BRAND_FED_COLOR__ !important;
-            box-shadow: 0 10px 26px rgba(44, 125, 160, 0.24);
-        }
-        .stButton > button.fx-button-create-run {
-            background: __BRAND_XPLORE_COLOR__ !important;
-            box-shadow: 0 10px 26px rgba(255, 102, 102, 0.24);
-        }
-        .stButton > button.fx-button-fed {
-            background: __BRAND_FED_COLOR__ !important;
-            box-shadow: 0 10px 26px rgba(44, 125, 160, 0.24);
-        }
-        [data-testid="stSidebar"] .stButton > button.fx-button-dashboard,
-        [data-testid="stSidebar"] .stButton > button.fx-button-create-run {
-            color: white !important;
-        }
-        .fx-topline {
-            display: flex;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 1rem;
-            margin-bottom: 0.35rem;
-        }
-        .fx-card {
-            background: __APP_BACKGROUND_COLOR__;
-            border: 1px solid rgba(23, 52, 86, 0.14);
-            border-radius: 16px;
-            padding: 0.95rem 1rem;
-            box-shadow: none;
-        }
-        .fx-card-label {
-            color: __APP_TEXT_COLOR__;
-            font-size: 0.84rem;
-            margin-bottom: 0.35rem;
-        }
-        .fx-card-value {
-            color: __APP_TEXT_COLOR__;
-            font-size: 1.65rem;
-            font-weight: 700;
-            line-height: 1.05;
-        }
-        .fx-status {
-            display: inline-block;
-            border-radius: 999px;
-            padding: 0.18rem 0.7rem;
-            font-size: 0.8rem;
-            font-weight: 700;
-        }
-        .fx-status.running { background: #e9f2ff; color: #195ad7; }
-        .fx-status.stopping { background: #fff5e8; color: #b46d00; }
-        .fx-status.stopped,
-        .fx-status.finished { background: #eef3f9; color: #5c6f87; }
-        .fx-status.failed_to_start,
-        .fx-status.missing_status,
-        .fx-status.invalid_status,
-        .fx-status.missing_pid { background: #ffe9ee; color: #b42338; }
-        .fx-status.default { background: #eef3f9; color: #5c6f87; }
-        .fx-table {
-            border: 1px solid #d7e6fb;
-            border-radius: 18px;
-            background: #ffffff;
-            box-shadow: 0 10px 28px rgba(20, 77, 169, 0.06);
-            padding: 0.35rem 0.45rem 0.45rem 0.45rem;
-        }
-        .fx-table-header {
-            color: #4a6c95;
-            font-size: 0.8rem;
-            font-weight: 700;
-            letter-spacing: 0.02em;
-            text-transform: uppercase;
-            margin-bottom: 0.15rem;
-        }
-        .fx-divider {
-            height: 1px;
-            background: #edf3fb;
-            margin: 0.25rem 0;
-        }
-        .fx-section {
-            margin-top: 0.5rem;
-            padding-top: 0.15rem;
-        }
-        .fx-param-card {
-            border: 1px solid #dde8f8;
-            border-radius: 16px;
-            padding: 0.8rem 0.9rem 0.25rem 0.9rem;
-            background: #ffffff;
-            box-shadow: 0 8px 22px rgba(20, 77, 169, 0.04);
-            margin-bottom: 0.7rem;
-        }
-        .fx-run-head {
-            margin-bottom: 0.7rem;
-        }
-        .fx-kv {
-            display: grid;
-            grid-template-columns: 180px 1fr;
-            gap: 0.5rem 1rem;
-            align-items: start;
-        }
-        .fx-kv-label {
-            color: #5d7ca1;
-            font-weight: 600;
-        }
-        .fx-detail-hero {
-            padding: 0.15rem 0 0.9rem 0;
-            border-bottom: 1px solid #e5eef9;
-            margin-bottom: 1rem;
-        }
-        .fx-detail-title {
-            color: #173456;
-            font-size: 2rem;
-            font-weight: 700;
-            line-height: 1.05;
-            margin-bottom: 0.35rem;
-        }
-        .fx-detail-subtitle {
-            color: #6886aa;
-            font-size: 0.95rem;
-        }
-        .fx-detail-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 1rem 1.35rem;
-            margin-top: 1rem;
-        }
-        .fx-detail-item {
-            min-width: 0;
-        }
-        .fx-detail-label {
-            color: #6f89a8;
-            font-size: 0.76rem;
-            font-weight: 700;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-            margin-bottom: 0.22rem;
-        }
-        .fx-detail-value {
-            color: #173456;
-            font-size: 1rem;
-            font-weight: 600;
-            line-height: 1.35;
-            word-break: break-word;
-        }
-        .fx-step-note {
-            color: #6f89a8;
-            margin-bottom: 0.55rem;
-        }
-        .fx-gpu-panel {
-            border: 1px solid #d8e6fb;
-            border-radius: 16px;
-            padding: 0.85rem 1rem;
-            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-            margin-bottom: 0.65rem;
-        }
-        .fx-gpu-head {
-            display: flex;
-            justify-content: space-between;
-            gap: 1rem;
-            margin-bottom: 0.55rem;
-            font-weight: 600;
-            color: #18385f;
-        }
-        .fx-gpu-bar {
-            height: 10px;
-            border-radius: 999px;
-            background: #e5eefc;
-            overflow: hidden;
-            margin-bottom: 0.45rem;
-        }
-        .fx-gpu-bar > span {
-            display: block;
-            height: 100%;
-            border-radius: 999px;
-            background: linear-gradient(90deg, #2d6df6 0%, #62a0ff 100%);
-        }
-        button[data-baseweb="tab"] {
-            min-height: 3.2rem;
-            padding: 0.85rem 1.2rem;
-            font-size: 1rem;
-            font-weight: 700;
-        }
-        [data-testid="stRadio"] label {
-            padding-top: 0.15rem;
-            padding-bottom: 0.15rem;
-        }
-        </style>
-    """
-    css = (
-        css.replace("__APP_BACKGROUND_COLOR__", APP_BACKGROUND_COLOR)
-        .replace("__APP_TEXT_COLOR__", APP_TEXT_COLOR)
-        .replace("__BRAND_FED_COLOR__", BRAND_FED_COLOR)
-        .replace("__BRAND_XPLORE_COLOR__", BRAND_XPLORE_COLOR)
-    )
-    st.markdown(
-        css,
-        unsafe_allow_html=True,
-    )
+    inject_global_styles()
 
 
 def pick_options(discovered: list[str], fallback: list[str]) -> list[str]:
@@ -971,6 +868,10 @@ def build_default_state(repo_root: Path, options: dict[str, list[str]]) -> dict[
     defaults = {
         VIEW_KEY: VIEW_DASHBOARD,
         SELECTED_RUN_KEY: "",
+        COMPARE_RUN_IDS_KEY: [],
+        COMPARE_PICKER_KEY: [],
+        COMPARE_DASHBOARD_SYNC_KEY: None,
+        FLASH_MESSAGE_KEY: "",
         LAST_LINES_KEY: 200,
         TEMPLATE_PICKER_KEY: "",
         LOADED_TEMPLATE_KEY: "",
@@ -987,6 +888,10 @@ def build_default_state(repo_root: Path, options: dict[str, list[str]]) -> dict[
         TEMPLATE_OVERRIDES_KEY: "",
         DEVICE_MODE_KEY: str(main_flat_defaults.get("training_params.device", "cuda")),
         DEVICE_IDS_KEY: list(main_flat_defaults.get("training_params.device_ids", [0])),
+        DATASET_BASE_KEY: default_selections.get("train_dataset") or (
+            options.get("dataset", [""])[0] if options.get("dataset") else ""
+        ),
+        DATASET_ROLE_BASE_KEY: "",
         ATTACK_TYPE_KEY: (
             main_flat_defaults.get("federated_params.clients_attack_types", "no_attack")[0]
             if isinstance(
@@ -1021,11 +926,23 @@ def build_default_state(repo_root: Path, options: dict[str, list[str]]) -> dict[
 
     return defaults
 
-def navigate_to(view: str, *, run_id: str | None = None) -> None:
+def navigate_to(
+    view: str,
+    *,
+    run_id: str | None = None,
+    compare_run_ids: list[str] | None = None,
+) -> None:
     st.session_state[VIEW_KEY] = view
     if run_id is not None:
         st.session_state[SELECTED_RUN_KEY] = run_id
-    sync_query_params(view, run_id)
+    if compare_run_ids is not None:
+        set_compare_run_ids(compare_run_ids)
+    active_compare_ids = (
+        normalize_compare_run_ids(st.session_state.get(COMPARE_RUN_IDS_KEY, []))
+        if view == VIEW_COMPARE
+        else []
+    )
+    sync_query_params(view, run_id, active_compare_ids)
 
 
 def reset_form_to_defaults(defaults: dict[str, Any]) -> None:
@@ -1105,6 +1022,12 @@ def apply_template_to_state(
 
     st.session_state[TEMPLATE_OVERRIDES_KEY] = "\n".join(template.overrides)
     st.session_state["ui_raw_overrides"] = ""
+    st.session_state[DATASET_BASE_KEY] = str(
+        st.session_state.get("ui_train_dataset", "") or ""
+    )
+    # A template is authoritative: opening the Dataset step must not replace
+    # its independently chosen train/test/trust roles.
+    st.session_state[DATASET_ROLE_BASE_KEY] = st.session_state[DATASET_BASE_KEY]
     st.session_state[LOADED_TEMPLATE_KEY] = template.key
 
 
@@ -1136,6 +1059,23 @@ def render_card(label: str, value: str) -> None:
         ),
         unsafe_allow_html=True,
     )
+
+
+def render_create_summary() -> None:
+    """Persistent research-level context for the Create Run flow."""
+
+    rows = build_experiment_summary(st.session_state)
+    with st.container(key="create-summary"):
+        st.markdown("<div class='fx-summary-title'>Experiment Summary</div>", unsafe_allow_html=True)
+        if not rows:
+            st.caption("Choose a template or configure the experiment to see a summary.")
+            return
+        for label, value in rows:
+            st.markdown(
+                f"<div class='fx-summary-row'><div class='fx-summary-label'>{label}</div>"
+                f"<div class='fx-summary-value'>{value}</div></div>",
+                unsafe_allow_html=True,
+            )
 
 
 def set_create_step(step: str) -> None:
@@ -1228,16 +1168,33 @@ def render_select_input(
     *,
     key: str,
     none_label: str | None = None,
+    on_change=None,
 ) -> None:
     if none_label is None:
-        st.selectbox(label, options, key=key, format_func=lambda value: str(value))
+        st.selectbox(
+            label,
+            options,
+            key=key,
+            format_func=lambda value: str(value),
+            on_change=on_change,
+        )
         return
     st.selectbox(
         label,
         options,
         key=key,
         format_func=lambda value: none_label if not value else str(value),
+        on_change=on_change,
     )
+
+
+def reset_no_attack_settings() -> None:
+    """Restore a coherent disabled-attack configuration after switching back."""
+
+    if str(st.session_state.get(ATTACK_TYPE_KEY, "no_attack")) != "no_attack":
+        return
+    for path, value in NO_ATTACK_BASE_PARAMS.items():
+        st.session_state[base_widget_key(path)] = value
 
 
 def resolve_template_key(raw_value: str, templates: dict[str, TemplateSpec]) -> str:
@@ -1266,10 +1223,31 @@ def apply_mlflow_target_preset(repo_root: Path, target: str) -> None:
     st.session_state[MLFLOW_TARGET_APPLIED_KEY] = target
 
 
+def ensure_mlflow_tracking_uri(
+    repo_root: Path, target: str, *, force: bool = False
+) -> bool:
+    """Ensure a selected MLflow logger always has a usable tracking URI.
+
+    A Blank template resets component fields to the YAML ``null`` value while
+    retaining the selected MLflow target in general UI state.  This helper is
+    deliberately also called during payload collection, so jumping straight
+    to Review & Launch cannot produce a ``logger.tracking_uri=null`` run.
+    """
+
+    tracking_uri_key = component_widget_key("logger", "mlflow", "tracking_uri")
+    current_uri = str(st.session_state.get(tracking_uri_key, "") or "").strip()
+    if not force and current_uri.lower() not in {"", "null", "none"}:
+        return False
+    apply_mlflow_target_preset(repo_root, target)
+    return True
+
+
 def render_sidebar() -> None:
     with st.sidebar:
         st.markdown(brand_markup(level=2), unsafe_allow_html=True)
         if st.button("Dashboard", key="sidebar_dashboard", use_container_width=True):
+            if st.session_state.get(VIEW_KEY) == VIEW_COMPARE:
+                clear_compare_selection()
             navigate_to(VIEW_DASHBOARD)
             rerun_app()
         if st.button("Create Run", key="sidebar_create_run", use_container_width=True):
@@ -1389,6 +1367,20 @@ def get_run_mlflow_context(repo_root: Path, run: dict[str, Any], meta: dict[str,
     logger_name = str(selected_groups.get("logger") or meta.get("logger") or "").strip()
     logger_params = component_params.get("logger", {}) or {}
     tracking_uri = str(logger_params.get("tracking_uri", "") or "").strip()
+    spec = meta.get("spec", {}) or {}
+    saved_overrides = spec.get("overrides", [])
+    if isinstance(saved_overrides, list):
+        for raw_override in saved_overrides:
+            override = str(raw_override).strip()
+            while override.startswith(("+", "~")):
+                override = override[1:]
+            if "=" not in override:
+                continue
+            key, value = override.split("=", 1)
+            if key.strip() == "logger":
+                logger_name = value.strip()
+            elif key.strip() == "logger.tracking_uri":
+                tracking_uri = value.strip()
     ui_url_hint = str(meta.get("mlflow_url", "") or "").strip()
     target = str(payload.get("mlflow_target", "") or "").strip()
     if not target:
@@ -1398,9 +1390,17 @@ def get_run_mlflow_context(repo_root: Path, run: dict[str, Any], meta: dict[str,
         )
 
     status = read_status(Path(run["run_dir"]))
-    mlflow_run_id = str(status.get("mlflow_run_id", "") or "").strip()
-    mlflow_experiment_id = str(status.get("mlflow_experiment_id", "") or "").strip()
-    mlflow_url = str(status.get("mlflow_url", "") or ui_url_hint).strip()
+    mlflow_run_id = str(
+        status.get("mlflow_run_id", "") or spec.get("mlflow_run_id", "") or ""
+    ).strip()
+    mlflow_experiment_id = str(
+        status.get("mlflow_experiment_id", "")
+        or spec.get("mlflow_experiment_id", "")
+        or ""
+    ).strip()
+    mlflow_url = str(
+        status.get("mlflow_url", "") or spec.get("mlflow_url", "") or ui_url_hint
+    ).strip()
 
     return {
         "enabled": logger_name == "mlflow",
@@ -1422,12 +1422,77 @@ def format_rel_path(repo_root: Path, path_value: str | Path) -> str:
         return str(path)
 
 
-def render_dashboard_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
-    st.markdown(brand_markup(suffix="Dashboard", level=1), unsafe_allow_html=True)
+def _sync_dashboard_compare_selection(runs: list[dict[str, Any]]) -> list[str]:
+    known_ids = {str(run["run_id"]) for run in runs}
+    selected = [
+        run_id
+        for run_id in normalize_compare_run_ids(
+            st.session_state.get(COMPARE_RUN_IDS_KEY, [])
+        )
+        if run_id in known_ids
+    ]
+    if selected != st.session_state.get(COMPARE_RUN_IDS_KEY, []):
+        st.session_state[COMPARE_RUN_IDS_KEY] = selected
 
+    marker = tuple(selected)
+    missing_checkbox_state = any(
+        compare_checkbox_key(str(run["run_id"])) not in st.session_state
+        for run in runs
+    )
+    if (
+        st.session_state.get(COMPARE_DASHBOARD_SYNC_KEY) != marker
+        or missing_checkbox_state
+    ):
+        selected_set = set(selected)
+        for run in runs:
+            run_id = str(run["run_id"])
+            st.session_state[compare_checkbox_key(run_id)] = run_id in selected_set
+        st.session_state[COMPARE_DASHBOARD_SYNC_KEY] = marker
+    return selected
+
+
+def _update_dashboard_compare_selection(run_id: str) -> None:
+    selected = normalize_compare_run_ids(
+        st.session_state.get(COMPARE_RUN_IDS_KEY, [])
+    )
+    checkbox_value = bool(st.session_state.get(compare_checkbox_key(run_id), False))
+    if checkbox_value and run_id not in selected:
+        selected.append(run_id)
+    if not checkbox_value:
+        selected = [current_id for current_id in selected if current_id != run_id]
+    set_compare_run_ids(selected)
+
+
+def render_dashboard_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
     total_runs = len(runs)
     running_runs = sum(1 for run in runs if run.get("status") == "running")
     stopping_runs = sum(1 for run in runs if run.get("status") == "stopping")
+    selected_run_ids = _sync_dashboard_compare_selection(runs) if runs else []
+
+    header_cols = st.columns([5.0, 1.1, 1.45, 1.35])
+    with header_cols[0]:
+        st.markdown(brand_markup(suffix="Runs", level=1), unsafe_allow_html=True)
+    with header_cols[1]:
+        if selected_run_ids:
+            st.markdown(
+                f"<div class='fx-selection-count'>{len(selected_run_ids)} selected</div>",
+                unsafe_allow_html=True,
+            )
+    with header_cols[2]:
+        if len(selected_run_ids) >= 2:
+            if st.button(
+                "Compare selected",
+                key="dashboard_compare_selected",
+                use_container_width=True,
+            ):
+                navigate_to(VIEW_COMPARE, compare_run_ids=selected_run_ids)
+                rerun_app()
+    with header_cols[3]:
+        if st.button("Create Run", key="dashboard_create_run", use_container_width=True):
+            set_create_step(CREATE_STEPS[0])
+            navigate_to(VIEW_CREATE)
+            rerun_app()
+
     cards = st.columns(3)
     with cards[0]:
         render_card("Runs", str(total_runs))
@@ -1436,9 +1501,8 @@ def render_dashboard_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
     with cards[2]:
         render_card("Stopping", str(stopping_runs))
 
-    st.markdown("### Runs")
     if not runs:
-        st.write("No runs.")
+        st.info("No runs yet. Create a run to start building your experiment history.")
         return
 
     metas = [extract_run_meta(repo_root, run) for run in runs]
@@ -1446,16 +1510,17 @@ def render_dashboard_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
     dataset_options = ["All"] + sorted({meta["dataset"] for meta in metas if meta["dataset"] not in {"", "-"}})
     status_options = ["All"] + sorted({meta["status"] for meta in metas if meta["status"]})
 
-    with st.container(border=True):
-        filter_cols = st.columns([1.9, 1.2, 1.2, 1.1])
-        with filter_cols[0]:
-            st.text_input("Name", key=DASHBOARD_NAME_FILTER_KEY, placeholder="Search run")
-        with filter_cols[1]:
-            st.selectbox("Method", method_options, key=DASHBOARD_METHOD_FILTER_KEY)
-        with filter_cols[2]:
-            st.selectbox("Dataset", dataset_options, key=DASHBOARD_DATASET_FILTER_KEY)
-        with filter_cols[3]:
-            st.selectbox("Status", status_options, key=DASHBOARD_STATUS_FILTER_KEY)
+    with st.container(key="dashboard-runs-table"):
+        with st.expander("Search and filters", expanded=False):
+            filter_cols = st.columns([1.9, 1.2, 1.2, 1.1])
+            with filter_cols[0]:
+                st.text_input("Name", key=DASHBOARD_NAME_FILTER_KEY, placeholder="Search run")
+            with filter_cols[1]:
+                st.selectbox("Method", method_options, key=DASHBOARD_METHOD_FILTER_KEY)
+            with filter_cols[2]:
+                st.selectbox("Dataset", dataset_options, key=DASHBOARD_DATASET_FILTER_KEY)
+            with filter_cols[3]:
+                st.selectbox("Status", status_options, key=DASHBOARD_STATUS_FILTER_KEY)
 
         filtered_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
         name_filter = st.session_state.get(DASHBOARD_NAME_FILTER_KEY, "").strip().lower()
@@ -1474,7 +1539,7 @@ def render_dashboard_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
             filtered_rows.append((run, meta))
 
         st.markdown("<div class='fx-divider'></div>", unsafe_allow_html=True)
-        header_cols = st.columns([2.5, 1.25, 1.25, 1.35, 1.0, 0.95, 0.8])
+        header_cols = st.columns([3.0, 1.2, 1.2, 1.3, 1.0, 0.9, 0.8])
         header_labels = ["Name", "Method", "Dataset", "Created", "Time", "Status", ""]
         for col, label in zip(header_cols, header_labels):
             with col:
@@ -1487,25 +1552,37 @@ def render_dashboard_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
             return
 
         for index, (run, meta) in enumerate(filtered_rows):
-            row_cols = st.columns([2.5, 1.25, 1.25, 1.35, 1.0, 0.95, 0.8])
-            with row_cols[0]:
-                st.markdown(f"**{meta['name']}**")
-            with row_cols[1]:
-                st.write(meta["method"])
-            with row_cols[2]:
-                st.write(meta["dataset"])
-            with row_cols[3]:
-                st.write(meta["created_at"])
-            with row_cols[4]:
-                st.write(meta["duration"])
-            with row_cols[5]:
-                st.markdown(format_status_badge(meta["status"]), unsafe_allow_html=True)
-            with row_cols[6]:
-                if st.button("Open", key=f"open_run_{run['run_id']}", use_container_width=True):
-                    navigate_to(VIEW_RUN, run_id=run["run_id"])
-                    rerun_app()
-            if index < len(filtered_rows) - 1:
-                st.markdown("<div class='fx-divider'></div>", unsafe_allow_html=True)
+            with st.container(key=f"run-row-{safe_key(str(run['run_id']))}"):
+                row_cols = st.columns(
+                    [3.0, 1.2, 1.2, 1.3, 1.0, 0.9, 0.8],
+                    vertical_alignment="center",
+                )
+                with row_cols[0]:
+                    name_cols = st.columns([0.16, 2.84], vertical_alignment="center")
+                    with name_cols[0]:
+                        st.checkbox(
+                            "Select run",
+                            key=compare_checkbox_key(str(run["run_id"])),
+                            on_change=_update_dashboard_compare_selection,
+                            args=[str(run["run_id"])],
+                            label_visibility="collapsed",
+                        )
+                    with name_cols[1]:
+                        st.markdown(f"**{meta['name']}**")
+                with row_cols[1]:
+                    st.write(meta["method"])
+                with row_cols[2]:
+                    st.write(meta["dataset"])
+                with row_cols[3]:
+                    st.write(meta["created_at"])
+                with row_cols[4]:
+                    st.write(meta["duration"])
+                with row_cols[5]:
+                    st.markdown(format_status_badge(meta["status"]), unsafe_allow_html=True)
+                with row_cols[6]:
+                    if st.button("Open", key=f"open_run_{run['run_id']}", use_container_width=True):
+                        navigate_to(VIEW_RUN, run_id=run["run_id"])
+                        rerun_app()
 
 
 def render_value_widget(label: str, key: str, default_value: Any, *, height: int = 88) -> None:
@@ -1540,7 +1617,25 @@ def render_flat_param_editors(
             default_value = flat_defaults[path]
             widget_key = widget_key_builder(path)
             with cols[column_index]:
-                render_value_widget(path, widget_key, default_value)
+                render_value_widget(readable_label(path), widget_key, default_value)
+
+
+def render_create_card(title: str, description: str, *, key: str):
+    """Return a keyed, consistently styled card container for Create Run."""
+
+    container = st.container(key=f"create-card-{key}")
+    heading = f"<div class='fx-create-card-title'>{title}</div>" if title else ""
+    detail = f"<div class='fx-create-card-description'>{description}</div>" if description else ""
+    if heading or detail:
+        container.markdown(heading + detail, unsafe_allow_html=True)
+    return container
+
+
+def render_advanced_settings(title: str, render_body) -> None:
+    """Use one progressive-disclosure pattern across Create Run cards."""
+
+    with st.expander(f"Advanced {title}", expanded=False):
+        render_body()
 
 
 def collect_flat_param_values(
@@ -1568,16 +1663,75 @@ def get_component_flat_defaults(repo_root: Path, component_name: str, option: st
     return get_component_default_params(repo_root, component_name, option)
 
 
-def render_component_section(repo_root: Path, component_name: str, option: str) -> None:
+def render_component_section(
+    repo_root: Path,
+    component_name: str,
+    option: str,
+    *,
+    primary_paths: set[str] | None = None,
+    hidden_paths: set[str] | None = None,
+    advanced_extra=None,
+) -> None:
     flat_defaults = get_component_flat_defaults(repo_root, component_name, option)
     if not flat_defaults:
         return
-    st.markdown(f"##### {COMPONENT_LABELS[component_name]} parameters")
-    render_flat_param_editors(
-        "",
-        flat_defaults,
-        widget_key_builder=lambda path: component_widget_key(component_name, option, path),
-    )
+    # Targets describe Python implementation details.  They are needed by
+    # Hydra but must never be exposed as an editable experiment parameter.
+    hidden = set(hidden_paths or set()) | {"_target_", "config._target_"}
+    flat_defaults = {path: value for path, value in flat_defaults.items() if path not in hidden}
+    primary = set(flat_defaults) if primary_paths is None else set(primary_paths)
+    visible = {path: value for path, value in flat_defaults.items() if path in primary}
+    advanced = {path: value for path, value in flat_defaults.items() if path not in primary}
+    if visible:
+        render_flat_param_editors(
+            "",
+            visible,
+            widget_key_builder=lambda path: component_widget_key(component_name, option, path),
+        )
+    if advanced or advanced_extra is not None:
+        def render_advanced_body() -> None:
+            if advanced:
+                render_flat_param_editors(
+                    "",
+                    advanced,
+                    widget_key_builder=lambda path: component_widget_key(component_name, option, path),
+                )
+            if advanced_extra is not None:
+                advanced_extra()
+
+        component_label = COMPONENT_LABELS.get(component_name, readable_option(component_name))
+        render_advanced_settings(
+            f"{component_label.lower()} settings",
+            render_advanced_body,
+        )
+
+
+def render_optimizer_betas(repo_root: Path, optimizer: str) -> None:
+    """Expose common optimizer betas as two numeric values, preserving the list."""
+
+    defaults = get_component_flat_defaults(repo_root, "optimizer", optimizer)
+    if "betas" not in defaults:
+        return
+    value_key = component_widget_key("optimizer", optimizer, "betas")
+    seed_state_value(value_key, defaults["betas"])
+    try:
+        values = yaml.safe_load(str(st.session_state[value_key]))
+    except yaml.YAMLError:
+        values = defaults["betas"]
+    if not isinstance(values, list) or len(values) < 2:
+        values = defaults["betas"]
+    beta_keys = (f"{value_key}__beta1", f"{value_key}__beta2")
+    st.session_state.setdefault(beta_keys[0], float(values[0]))
+    st.session_state.setdefault(beta_keys[1], float(values[1]))
+    beta_columns = st.columns(2)
+    with beta_columns[0]:
+        st.number_input("β1", key=beta_keys[0], format="%.6g")
+    with beta_columns[1]:
+        st.number_input("β2", key=beta_keys[1], format="%.6g")
+    st.session_state[value_key] = [
+        float(st.session_state[beta_keys[0]]),
+        float(st.session_state[beta_keys[1]]),
+    ]
 
 
 def collect_component_values(
@@ -1590,6 +1744,13 @@ def collect_component_values(
         flat_defaults,
         widget_key_builder=lambda path: component_widget_key(component_name, option, path),
     )
+
+
+def is_hydra_target_override(override: str) -> bool:
+    """Keep implementation targets out of both guided and raw UI input."""
+
+    key = override.split("=", 1)[0].lstrip("+").strip()
+    return key == "_target_" or key.endswith("._target_")
 
 
 def render_gpu_monitor() -> None:
@@ -1648,8 +1809,21 @@ def collect_form_payload(
     base_params["training_params.device_ids"] = device_ids if device_mode == "cuda" else []
     attack_type = str(st.session_state.get(ATTACK_TYPE_KEY, "no_attack") or "no_attack")
     base_params["federated_params.clients_attack_types"] = attack_type
-    attack_params: dict[str, Any] = {}
-    attack_errors: list[str] = []
+    if attack_type == "no_attack":
+        # Defend against a stale session or a launch that happens without
+        # returning to the Attacks step.  ``constant`` with zero rounds is
+        # invalid in the training code, whereas the disabled state is valid.
+        for path, value in NO_ATTACK_BASE_PARAMS.items():
+            base_params[path] = value
+    attack_params, attack_errors = collect_component_values(
+        repo_root, "attack", attack_type
+    ) if attack_type != "no_attack" else ({}, [])
+
+    if selected_groups.get("logger") == "mlflow":
+        ensure_mlflow_tracking_uri(
+            repo_root,
+            str(st.session_state.get(MLFLOW_TARGET_KEY, "local") or "local"),
+        )
 
     component_params: dict[str, dict[str, Any]] = {}
     component_errors: list[str] = []
@@ -1668,6 +1842,8 @@ def collect_form_payload(
         raw_overrides = parse_raw_overrides(raw_override_text)
     except ValueError as exc:
         raw_errors.append(str(exc))
+    if any(is_hydra_target_override(override) for override in raw_overrides):
+        raw_errors.append("Hydra _target_ overrides are managed by the selected component and cannot be edited here.")
 
     template_override_text = st.session_state.get(TEMPLATE_OVERRIDES_KEY, "")
     template_errors: list[str] = []
@@ -1676,6 +1852,8 @@ def collect_form_payload(
         template_overrides = parse_raw_overrides(template_override_text)
     except ValueError as exc:
         template_errors.append(str(exc))
+    if any(is_hydra_target_override(override) for override in template_overrides):
+        template_errors.append("Template Hydra _target_ overrides are not supported in the UI.")
 
     form_payload = {
         "run_name": st.session_state["ui_run_name"].strip() or DEFAULT_RUN_NAME,
@@ -1702,121 +1880,444 @@ def render_template_section(
     defaults: dict[str, Any],
     templates: dict[str, TemplateSpec],
 ) -> None:
-    st.markdown("### Template")
-    st.markdown("<div class='fx-step-note'>Choose a template or keep a manual setup.</div>", unsafe_allow_html=True)
-    template_options = [""] + list(templates.keys())
-
-    def format_template_value(value: str) -> str:
-        if not value:
-            return "Manual"
-        template = templates.get(str(value))
-        return template.name if template is not None else str(value)
-
-    selected_template = st.selectbox(
-        "Template",
-        options=template_options,
-        key=TEMPLATE_PICKER_KEY,
-        format_func=format_template_value,
-    )
-    resolved_template_key = resolve_template_key(str(selected_template or ""), templates)
-    loaded_template = resolve_template_key(
-        str(st.session_state.get(LOADED_TEMPLATE_KEY, "") or ""),
-        templates,
+    st.markdown("### Start from a template")
+    st.caption("Templates apply the same saved form values and Hydra overrides as before.")
+    active_template = resolve_template_key(
+        str(st.session_state.get(LOADED_TEMPLATE_KEY, "") or ""), templates
     )
     current_step = str(st.session_state.get(CREATE_STEP_KEY, "template") or "template")
-    if resolved_template_key and resolved_template_key != loaded_template:
-        queue_template_load(resolved_template_key, target_step=current_step)
-        rerun_app()
-    if not resolved_template_key and loaded_template:
-        queue_template_reset(target_step=current_step)
-        rerun_app()
+    cards = [("", "Blank experiment", "Start from the repository defaults.")]
+    cards.extend((key, template.name, template.description or "Saved experiment setup.") for key, template in templates.items())
+    for start in range(0, len(cards), 2):
+        columns = st.columns(2)
+        for column, (template_key, title, description) in zip(columns, cards[start : start + 2]):
+            selected = template_key == active_template
+            card_key = f"template-card-{'selected-' if selected else ''}{safe_key(template_key or 'blank')}"
+            with column, st.container(key=card_key):
+                st.markdown(f"<div class='fx-create-card-title'>{title}</div>", unsafe_allow_html=True)
+                st.caption(description)
+                action = "Selected" if selected else "Use template"
+                if st.button(action, key=f"use_template_{safe_key(template_key or 'blank')}", disabled=selected, use_container_width=True):
+                    if template_key:
+                        queue_template_load(template_key, target_step=current_step)
+                    else:
+                        queue_template_reset(target_step=current_step)
+                    rerun_app()
 
-    active_template = resolved_template_key or loaded_template
-    if active_template:
-        st.write(templates[active_template].description or templates[active_template].name)
+
+TAG_COLORS = {
+    "Personalization": ("#7C3AED", "#F5F3FF"),
+    "Byzantine": ("#DC2626", "#FEF2F2"),
+    "Heterogeneity": ("#D97706", "#FFFBEB"),
+    "Baseline": ("#64748B", "#F1F5F9"),
+}
+
+
+def render_research_tags(tags: list[str]) -> None:
+    if not tags:
+        return
+    rendered = []
+    for tag in tags:
+        dot, background = TAG_COLORS.get(str(tag), ("#64748B", "#F1F5F9"))
+        rendered.append(
+            f"<span class='fx-research-tag' style='--tag-dot:{dot};--tag-bg:{background}'>"
+            f"<i></i>{tag}</span>"
+        )
+    st.markdown("<div class='fx-research-tags'>" + "".join(rendered) + "</div>", unsafe_allow_html=True)
+
+
+def render_research_reference(metadata: dict[str, Any], *, dataset: bool = False) -> None:
+    reference = metadata.get("reference")
+    if not isinstance(reference, dict) or not reference.get("url"):
+        return
+    label = str(reference.get("label") or "Reference")
+    action = "View dataset ↗" if dataset else "View paper ↗"
+    st.caption(label)
+    st.markdown(f"[{action}]({reference['url']})")
+
+
+def select_catalog_option(state_key: str, option: str) -> None:
+    st.session_state[state_key] = option
+
+
+def select_base_dataset(option: str) -> None:
+    """Initialize dataset roles only when a user intentionally changes base data."""
+
+    previous = str(st.session_state.get(DATASET_ROLE_BASE_KEY, "") or "")
+    roles = initial_dataset_roles(option, previous)
+    st.session_state[DATASET_BASE_KEY] = option
+    if roles is None:
+        return
+    st.session_state["ui_train_dataset"] = roles["train_dataset"]
+    st.session_state["ui_test_dataset"] = roles["test_dataset"]
+    st.session_state["ui_trust_dataset"] = roles["trust_dataset"]
+    st.session_state[DATASET_ROLE_BASE_KEY] = option
+
+
+def render_research_catalog(
+    catalog: dict[str, dict[str, dict[str, Any]]],
+    section: str,
+    options: list[str],
+    *,
+    selected: str,
+    state_key: str,
+    include_tags: bool = False,
+    base_dataset: bool = False,
+) -> None:
+    with st.container(key=f"research-catalog-list-{section}"):
+        for option in ordered_options(catalog, section, options):
+            metadata = metadata_for(catalog, section, option)
+            is_selected = option == selected
+            key_suffix = "selected" if is_selected else "muted" if selected else "normal"
+            with st.container(key=f"research-catalog-{section}-{safe_key(option)}-{key_suffix}"):
+                callback = select_base_dataset if base_dataset else select_catalog_option
+                args = (option,) if base_dataset else (state_key, option)
+                if section == "federated_method":
+                    # Method cards have tags and remain compact, with one
+                    # transparent button covering the complete card.
+                    st.markdown(
+                        f"<div class='fx-research-catalog-name'>{metadata['display_name']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.button(
+                        f"Select {metadata['display_name']}",
+                        key=f"catalog_pick_{section}_{safe_key(option)}",
+                        on_click=callback,
+                        args=args,
+                        use_container_width=True,
+                    )
+                else:
+                    # The remaining catalogs are short: use regular, larger
+                    # buttons so their labels always stay centered inside.
+                    st.button(
+                        metadata["display_name"],
+                        key=f"catalog_pick_{section}_{safe_key(option)}",
+                        on_click=callback,
+                        args=args,
+                        use_container_width=True,
+                    )
+                if include_tags:
+                    render_research_tags(list(metadata.get("tags", [])))
+
+
+def render_research_details(
+    metadata: dict[str, Any],
+    *,
+    heading: str | None = None,
+    dataset: bool = False,
+) -> None:
+    st.markdown(f"### {metadata['display_name']}")
+    render_research_tags(list(metadata.get("tags", [])))
+    st.write(str(metadata.get("description") or ""))
+    render_research_reference(metadata, dataset=dataset)
+    paper_reference = metadata.get("paper_reference")
+    if dataset and isinstance(paper_reference, dict) and paper_reference.get("url"):
+        st.markdown(f"[View dataset paper ↗]({paper_reference['url']})")
+    if heading:
+        st.divider()
+        st.markdown(f"#### {heading}")
+
+
+def render_research_hint(
+    catalog: dict[str, dict[str, dict[str, Any]]],
+    section: str,
+    option: str,
+) -> None:
+    """Show concise curated context beside an ordinary component selector."""
+
+    metadata = metadata_for(catalog, section, option)
+    if metadata.get("known") and metadata.get("description"):
+        st.caption(str(metadata["description"]))
+
+
+def render_component_parameters_card(
+    repo_root: Path,
+    component_name: str,
+    option: str,
+    *,
+    title: str,
+    primary_paths: set[str] | None = None,
+) -> None:
+    """Show parameter controls only when the selected local config has them."""
+
+    if not get_component_flat_defaults(repo_root, component_name, option):
+        return
+    with render_create_card(title, "", key=f"parameters-{component_name}-{safe_key(option)}"):
+        render_component_section(repo_root, component_name, option, primary_paths=primary_paths)
+
+
+def render_component_catalog_page(
+    repo_root: Path,
+    options: list[str],
+    *,
+    catalog: dict[str, dict[str, dict[str, Any]]],
+    section: str,
+    state_key: str,
+    title: str,
+    subtitle: str,
+    component_name: str,
+    include_tags: bool = False,
+    primary_paths: set[str] | None = None,
+) -> None:
+    st.markdown(f"### {title}")
+    st.caption(subtitle)
+    selected = str(st.session_state.get(state_key, "") or "")
+    columns = st.columns([1.15, 2.1, 1.0], gap="large")
+    with columns[0]:
+        st.markdown("#### Catalog")
+        render_research_catalog(
+            catalog, section, options, selected=selected, state_key=state_key, include_tags=include_tags
+        )
+    with columns[1]:
+        st.markdown("#### &nbsp;", unsafe_allow_html=True)
+        metadata = metadata_for(catalog, section, selected)
+        with render_create_card("", "", key=f"detail-{section}"):
+            render_research_details(metadata)
+        requirements = metadata.get("requirements", {})
+        if isinstance(requirements, dict) and requirements.get("requires_trust_dataset"):
+            st.info("This method requires a server-side trust dataset. Configure it on the Dataset step.")
+        render_component_parameters_card(
+            repo_root, component_name, selected,
+            title=f"{metadata['display_name']} parameters",
+            primary_paths=primary_paths,
+        )
+    with columns[2]:
+        render_create_summary()
+
+
+def render_selector_step(repo_root: Path, options: dict[str, list[str]], catalog: dict[str, dict[str, dict[str, Any]]]) -> None:
+    render_component_catalog_page(
+        repo_root,
+        options["client_selector"],
+        catalog=catalog,
+        section="client_selector",
+        state_key="ui_client_selector",
+        title="Client Selection",
+        subtitle="Choose how participating clients are selected for each communication round.",
+        component_name="client_selector",
+    )
+
+
+def render_dataset_step(repo_root: Path, options: dict[str, list[str]], catalog: dict[str, dict[str, dict[str, Any]]]) -> None:
+    st.markdown("### Dataset")
+    st.caption("Choose the base dataset, configure its roles, and define the federated client split.")
+    selected = str(st.session_state.get(DATASET_BASE_KEY, st.session_state.get("ui_train_dataset", "")) or "")
+    columns = st.columns([1.15, 2.1, 1.0], gap="large")
+    with columns[0]:
+        st.markdown("#### Dataset catalog")
+        render_research_catalog(catalog, "dataset", options["dataset"], selected=selected, state_key=DATASET_BASE_KEY, base_dataset=True)
+    with columns[1]:
+        st.markdown("#### &nbsp;", unsafe_allow_html=True)
+        metadata = metadata_for(catalog, "dataset", selected)
+        with render_create_card("", "", key="dataset-detail"):
+            render_research_details(metadata, dataset=True)
+        with render_create_card("Parameters", "", key="dataset-roles"):
+            role_cols = st.columns(3)
+            with role_cols[0]:
+                render_select_input("Train dataset", options["dataset"], key="ui_train_dataset")
+            with role_cols[1]:
+                render_select_input("Test dataset", options["dataset"], key="ui_test_dataset")
+            with role_cols[2]:
+                render_select_input("Trust dataset", [""] + options["dataset"], key="ui_trust_dataset", none_label="None")
+        method_metadata = metadata_for(catalog, "federated_method", st.session_state.get("ui_federated_method", ""))
+        requirements = method_metadata.get("requirements", {})
+        if isinstance(requirements, dict) and requirements.get("requires_trust_dataset") and not st.session_state.get("ui_trust_dataset"):
+            st.warning("The selected FL method requires a server-side trust dataset.")
+        defaults = get_main_flat_defaults(repo_root)
+        with render_create_card("Data loading & split", "", key="dataset-loading"):
+            render_flat_param_editors("", {path: defaults[path] for path in DATA_LOADING_BASE_PATHS}, widget_key_builder=base_widget_key)
+        with render_create_card("Client data distribution", "", key="dataset-distribution"):
+            render_select_input("Distribution", options["distribution"], key="ui_distribution")
+            render_component_section(repo_root, "distribution", st.session_state["ui_distribution"], primary_paths={"alpha", "n_clusters", "dominant_ratio"})
+    with columns[2]:
+        render_create_summary()
+
+
+def render_preaggregator_picker(repo_root: Path, options: dict[str, list[str]], catalog: dict[str, dict[str, dict[str, Any]]]) -> None:
+    selected = str(st.session_state.get("ui_preaggregator", "") or "")
+    render_research_catalog(
+        catalog, "preaggregator", options["preaggregator"],
+        selected=selected, state_key="ui_preaggregator",
+    )
+    metadata = metadata_for(catalog, "preaggregator", selected)
+    if selected:
+        st.write(str(metadata["description"]))
+        render_research_reference(metadata)
+    if selected:
+        render_component_parameters_card(repo_root, "preaggregator", selected, title="Pre-aggregation parameters")
+
+
+def render_attacks_catalog_step(repo_root: Path, options: dict[str, list[str]], catalog: dict[str, dict[str, dict[str, Any]]]) -> None:
+    st.markdown("### Attacks")
+    st.caption("Optionally introduce malicious clients and configure their adversarial behavior.")
+    selected = str(st.session_state.get(ATTACK_TYPE_KEY, "no_attack") or "no_attack")
+    # The summary has its own outer column so its height cannot push the
+    # scenario and pre-aggregation sections far down the page.
+    content_column, summary_column = st.columns([3.25, 1.0], gap="large")
+    with content_column:
+        columns = st.columns([1.15, 2.1], gap="large")
+        with columns[0]:
+            st.markdown("#### Attack catalog")
+            render_research_catalog(
+                catalog,
+                "attack",
+                options["attack_type"],
+                selected=selected,
+                state_key=ATTACK_TYPE_KEY,
+            )
+            if selected != "no_attack":
+                selected_preaggregator = str(st.session_state.get("ui_preaggregator", "") or "")
+                st.markdown("#### Pre-aggregation")
+                render_research_catalog(
+                    catalog,
+                    "preaggregator",
+                    options["preaggregator"],
+                    selected=selected_preaggregator,
+                    state_key="ui_preaggregator",
+                )
+        with columns[1]:
+            st.markdown("#### &nbsp;", unsafe_allow_html=True)
+            metadata = metadata_for(catalog, "attack", selected)
+            with render_create_card("", "", key="attack-detail"):
+                render_research_details(metadata)
+            if selected == "no_attack":
+                reset_no_attack_settings()
+            else:
+                # A pre-aggregation detail card is meaningful only after a
+                # concrete choice; no "None" information card is shown.
+                selected_preaggregator = str(st.session_state.get("ui_preaggregator", "") or "")
+                if selected_preaggregator:
+                    preaggregation_metadata = metadata_for(
+                        catalog,
+                        "preaggregator",
+                        selected_preaggregator,
+                    )
+                    with render_create_card("", "", key="preaggregation-detail"):
+                        render_research_details(preaggregation_metadata)
+
+                # Keep all editable attack-related values in one predictable
+                # block: scenario, attack-specific values, then optional
+                # pre-aggregation values.
+                defaults = get_main_flat_defaults(repo_root)
+                with render_create_card("Parameters", "", key="attack-parameters"):
+                    st.markdown("#### Attack scenario")
+                    render_flat_param_editors(
+                        "",
+                        {
+                            path: defaults[path]
+                            for path in [
+                                "federated_params.prop_attack_clients",
+                                "federated_params.prop_attack_rounds",
+                            ]
+                        },
+                        widget_key_builder=base_widget_key,
+                        columns=1,
+                    )
+                    render_select_input(
+                        "Attack schedule",
+                        ["constant", "random_rounds", "random_clients", "random_rounds_random_clients"],
+                        key=base_widget_key("federated_params.attack_scheme"),
+                    )
+                    if get_component_flat_defaults(repo_root, "attack", selected):
+                        st.divider()
+                        st.markdown("#### Attack parameters")
+                        render_component_section(
+                            repo_root,
+                            "attack",
+                            selected,
+                            primary_paths=set(),
+                        )
+                    if selected_preaggregator and get_component_flat_defaults(
+                        repo_root,
+                        "preaggregator",
+                        selected_preaggregator,
+                    ):
+                        st.divider()
+                        st.markdown("#### Pre-aggregation parameters")
+                        render_component_section(
+                            repo_root,
+                            "preaggregator",
+                            selected_preaggregator,
+                        )
+    with summary_column:
+        render_create_summary()
 
 
 def render_run_setup_step(repo_root: Path) -> None:
-    st.markdown("### Run")
+    st.markdown("### Experiment")
+    st.caption("Name the experiment and set its reproducibility seed.")
     main_flat_defaults = get_main_flat_defaults(repo_root)
-    general_left, general_right = st.columns([1.6, 1.4])
-    with general_left:
+    with render_create_card("Experiment identity", "A clear name makes the run easy to find later.", key="experiment"):
         st.text_input("Run name", key="ui_run_name")
         render_value_widget(
-            "random_state",
+            "Random seed",
             base_widget_key("random_state"),
             main_flat_defaults.get("random_state", 42),
         )
-    with general_right:
+    with render_create_card("Output", "The primary log path is assigned when the run starts.", key="output"):
         log_path = preview_stdout_path(repo_root, st.session_state["ui_run_name"])
         st.text_input("Primary log file", value=format_rel_path(repo_root, log_path), disabled=True)
+        st.caption("The UI adds a unique run-ID suffix when it starts the run.")
 
 
 def render_data_setup_step(repo_root: Path, options: dict[str, list[str]]) -> None:
-    st.markdown("### Setup")
-    dataset_cols = st.columns(3)
-    with dataset_cols[0]:
-        render_select_input("Train dataset", options["dataset"], key="ui_train_dataset")
-    with dataset_cols[1]:
-        render_select_input("Test dataset", options["dataset"], key="ui_test_dataset")
-    with dataset_cols[2]:
-        render_select_input(
-            "Trust dataset",
+    st.markdown("### Data & Clients")
+    dataset_card = render_create_card("Dataset", "Select datasets, model and trainer for this experiment.", key="dataset")
+    with dataset_card:
+        dataset_cols = st.columns(3)
+        with dataset_cols[0]:
+            render_select_input("Train dataset", options["dataset"], key="ui_train_dataset")
+        with dataset_cols[1]:
+            render_select_input("Test dataset", options["dataset"], key="ui_test_dataset")
+        with dataset_cols[2]:
+            render_select_input(
+                "Trust dataset",
             [""] + options["dataset"],
             key="ui_trust_dataset",
             none_label="None",
-        )
+            )
+        model_cols = st.columns(2)
+        with model_cols[0]:
+            render_select_input("Model", options["model"], key="ui_model")
+            render_component_section(repo_root, "model", st.session_state["ui_model"], primary_paths=set())
+        with model_cols[1]:
+            render_select_input("Model trainer", options["model_trainer"], key="ui_model_trainer")
+            render_component_section(repo_root, "model_trainer", st.session_state["ui_model_trainer"], primary_paths=set())
 
     main_flat_defaults = get_main_flat_defaults(repo_root)
-    render_flat_param_editors(
-        "Base setup",
-        {path: main_flat_defaults[path] for path in SETUP_BASE_PATHS},
-        widget_key_builder=base_widget_key,
+    with render_create_card("Federation", "Control client participation and local training cadence.", key="federation"):
+        render_flat_param_editors(
+            "",
+            {path: main_flat_defaults[path] for path in SETUP_BASE_PATHS},
+            widget_key_builder=base_widget_key,
+        )
+    with render_create_card("Data distribution", "Choose how training data is partitioned across clients.", key="distribution"):
+        render_select_input("Distribution", options["distribution"], key="ui_distribution")
+        render_component_section(
+            repo_root, "distribution", st.session_state["ui_distribution"], primary_paths={"alpha", "n_clusters", "dominant_ratio"}
+        )
+
+
+def render_method_step(
+    repo_root: Path,
+    options: dict[str, list[str]],
+    catalog: dict[str, dict[str, dict[str, Any]]],
+) -> None:
+    render_component_catalog_page(
+        repo_root,
+        options["federated_method"],
+        catalog=catalog,
+        section="federated_method",
+        state_key="ui_federated_method",
+        title="FL Method",
+        subtitle="Choose the federated learning method that defines the core learning and aggregation behavior of the experiment.",
+        component_name="federated_method",
+        include_tags=True,
     )
-
-    setup_component_cols = st.columns(3)
-    setup_components = [
-        ("distribution", "ui_distribution", options["distribution"]),
-        ("model", "ui_model", options["model"]),
-        ("model_trainer", "ui_model_trainer", options["model_trainer"]),
-    ]
-    for column, (component_name, state_key, component_options) in zip(
-        setup_component_cols, setup_components
-    ):
-        with column:
-            render_select_input(
-                COMPONENT_LABELS[component_name],
-                component_options,
-                key=state_key,
-            )
-            render_component_section(repo_root, component_name, st.session_state[state_key])
-
-
-def render_method_step(repo_root: Path, options: dict[str, list[str]]) -> None:
-    st.markdown("### Method")
-    method_cols = st.columns(3)
-    method_components = [
-        ("federated_method", "ui_federated_method", options["federated_method"]),
-        ("client_selector", "ui_client_selector", options["client_selector"]),
-        ("preaggregator", "ui_preaggregator", options["preaggregator"]),
-    ]
-    for column, (component_name, state_key, component_options) in zip(
-        method_cols, method_components
-    ):
-        with column:
-            render_select_input(
-                COMPONENT_LABELS[component_name],
-                component_options,
-                key=state_key,
-                none_label="None" if component_name == "preaggregator" else None,
-            )
-            render_component_section(repo_root, component_name, st.session_state[state_key])
 
 
 def render_logging_step(repo_root: Path, options: dict[str, list[str]]) -> None:
-    st.markdown("### Logging")
-    logging_cols = st.columns([1.2, 2])
-    with logging_cols[0]:
+    with render_create_card("Experiment tracking", "Record parameters and metrics for reproducible research.", key="tracking"):
         render_select_input("Logger", options["logger"], key="ui_logger")
         if st.session_state["ui_logger"] == "mlflow":
             st.radio(
@@ -1828,11 +2329,15 @@ def render_logging_step(repo_root: Path, options: dict[str, list[str]]) -> None:
             )
             selected_target = str(st.session_state.get(MLFLOW_TARGET_KEY, "remote") or "remote")
             applied_target = str(st.session_state.get(MLFLOW_TARGET_APPLIED_KEY, "") or "")
-            if selected_target != applied_target:
-                apply_mlflow_target_preset(repo_root, selected_target)
+            if ensure_mlflow_tracking_uri(
+                repo_root,
+                selected_target,
+                force=selected_target != applied_target,
+            ):
                 rerun_app()
-    with logging_cols[1]:
-        render_component_section(repo_root, "logger", st.session_state["ui_logger"])
+        render_component_section(
+            repo_root, "logger", st.session_state["ui_logger"], primary_paths={"experiment_name"}
+        )
         if st.session_state["ui_logger"] == "mlflow":
             tracking_uri = st.session_state.get(
                 component_widget_key("logger", "mlflow", "tracking_uri"),
@@ -1843,61 +2348,74 @@ def render_logging_step(repo_root: Path, options: dict[str, list[str]]) -> None:
                     st.session_state["ui_mlflow_ui_url"] = DEFAULT_LOCAL_MLFLOW_UI_URL
                 elif tracking_uri:
                     st.session_state["ui_mlflow_ui_url"] = normalize_mlflow_ui_url(str(tracking_uri))
-            if st.session_state.get(MLFLOW_TARGET_KEY) == "local":
-                st.caption(
-                    "Local MLflow store: "
-                    + format_rel_path(repo_root, get_local_mlflow_tracking_uri(repo_root))
-                )
-            st.text_input("MLflow UI", key="ui_mlflow_ui_url")
+            with st.expander("Advanced tracking settings", expanded=False):
+                if st.session_state.get(MLFLOW_TARGET_KEY) == "local":
+                    st.caption("Local MLflow store: " + format_rel_path(repo_root, get_local_mlflow_tracking_uri(repo_root)))
+                st.text_input("MLflow UI", key="ui_mlflow_ui_url")
+
+    main_flat_defaults = get_main_flat_defaults(repo_root)
+    with render_create_card("Metrics", "Choose what the server retains during federated training.", key="metrics"):
+        render_flat_param_editors(
+            "", {path: main_flat_defaults[path] for path in OTHER_BASE_PATHS}, widget_key_builder=base_widget_key,
+        )
 
 
 def render_training_step(repo_root: Path, options: dict[str, list[str]]) -> None:
-    st.markdown("### Training & Other")
-    main_flat_defaults = get_main_flat_defaults(repo_root)
+    st.markdown("### Training")
+    st.caption("Configure local optimization and the training objective.")
     base_cols = st.columns(2)
-    with base_cols[0]:
+    with base_cols[0], render_create_card("Optimizer", "Local optimizer and its core hyperparameters.", key="optimizer"):
         render_select_input("Optimizer", options["optimizer"], key="ui_optimizer")
-        render_component_section(repo_root, "optimizer", st.session_state["ui_optimizer"])
-        render_flat_param_editors(
-            "Federated",
-            {path: main_flat_defaults[path] for path in OTHER_BASE_PATHS},
-            widget_key_builder=base_widget_key,
+        render_component_section(
+            repo_root,
+            "optimizer",
+            st.session_state["ui_optimizer"],
+            primary_paths={"lr", "weight_decay", "momentum"},
+            hidden_paths={"betas"},
+            advanced_extra=lambda: render_optimizer_betas(repo_root, st.session_state["ui_optimizer"]),
         )
-    with base_cols[1]:
+    with base_cols[1], render_create_card("Loss", "Training objective used for the selected model.", key="loss"):
         render_select_input("Loss", options["loss"], key="ui_loss")
-        render_component_section(repo_root, "loss", st.session_state["ui_loss"])
+        render_component_section(
+            repo_root,
+            "loss",
+            st.session_state["ui_loss"],
+            primary_paths={"config.reduction", "config.label_smoothing"},
+        )
 
 
 def render_attacks_step(repo_root: Path, options: dict[str, list[str]]) -> None:
-    st.markdown("### Attacks")
-    main_flat_defaults = get_main_flat_defaults(repo_root)
-    render_select_input("Attack type", options["attack_type"], key=ATTACK_TYPE_KEY)
-    render_select_input(
-        "Attack scheme",
-        [
-            "no_attack",
-            "constant",
-            "random_rounds",
-            "random_clients",
-            "random_rounds_random_clients",
-        ],
-        key=base_widget_key("federated_params.attack_scheme"),
-    )
-    render_flat_param_editors(
-        "Attack schedule",
-        {
-            path: main_flat_defaults[path]
-            for path in [
-                "federated_params.prop_attack_clients",
-                "federated_params.prop_attack_rounds",
-            ]
-        },
-        widget_key_builder=base_widget_key,
-    )
+    st.markdown("### Attacks & Robustness")
+    with render_create_card("Adversarial behavior", "Enable an attack only when studying robustness.", key="attack"):
+        render_select_input(
+            "Attack type",
+            options["attack_type"],
+            key=ATTACK_TYPE_KEY,
+            on_change=reset_no_attack_settings,
+        )
+        if str(st.session_state.get(ATTACK_TYPE_KEY, "no_attack")) == "no_attack":
+            st.info("No adversarial behavior configured. Select an attack to configure malicious clients.")
+            return
+        main_flat_defaults = get_main_flat_defaults(repo_root)
+        render_select_input(
+            "Attack schedule",
+            ["constant", "random_rounds", "random_clients", "random_rounds_random_clients"],
+            key=base_widget_key("federated_params.attack_scheme"),
+        )
+        render_flat_param_editors(
+            "",
+            {path: main_flat_defaults[path] for path in ["federated_params.prop_attack_clients", "federated_params.prop_attack_rounds"]},
+            widget_key_builder=base_widget_key,
+        )
+        render_component_section(
+            repo_root,
+            "attack",
+            str(st.session_state[ATTACK_TYPE_KEY]),
+            primary_paths=set(),
+        )
 
 
 def render_technical_step(repo_root: Path, options: dict[str, list[str]]) -> None:
-    st.markdown("### Technical")
     gpu_rows = query_gpus()
     gpu_options = [int(row["index"]) for row in gpu_rows if isinstance(row.get("index"), int)]
     if DEVICE_MODE_KEY not in st.session_state:
@@ -1907,10 +2425,10 @@ def render_technical_step(repo_root: Path, options: dict[str, list[str]]) -> Non
     current_device_ids = normalize_device_selection(st.session_state.get(DEVICE_IDS_KEY, []))
     st.session_state[DEVICE_IDS_KEY] = [device_id for device_id in current_device_ids if device_id in gpu_options]
     technical_cols = st.columns([1.4, 1.1, 1.7])
-    with technical_cols[0]:
+    with technical_cols[0], render_create_card("Runtime", "Execution manager and batch scheduling.", key="runtime"):
         render_select_input("Manager", options["manager"], key="ui_manager")
         render_component_section(repo_root, "manager", st.session_state["ui_manager"])
-    with technical_cols[1]:
+    with technical_cols[1], render_create_card("Device & compute", "Choose CPU or visible CUDA devices.", key="compute"):
         render_select_input(
             "Batch generator",
             options["manager_batch_generator"],
@@ -1929,7 +2447,7 @@ def render_technical_step(repo_root: Path, options: dict[str, list[str]]) -> Non
         )
         if st.session_state[DEVICE_MODE_KEY] == "cuda":
             st.multiselect(
-                "GPU device_ids",
+                "GPU devices",
                 options=gpu_options,
                 key=DEVICE_IDS_KEY,
                 format_func=lambda value: f"GPU {value}",
@@ -1940,20 +2458,58 @@ def render_technical_step(repo_root: Path, options: dict[str, list[str]]) -> Non
         render_gpu_monitor()
 
 
+def render_experiment_setup_step(repo_root: Path, options: dict[str, list[str]]) -> None:
+    """Consolidate all non-research component controls without dropping fields."""
+
+    st.markdown("### Experiment Setup")
+    st.caption("Configure federation scale, training, tracking and runtime resources.")
+    catalog = load_research_catalog(Path(__file__).with_name("research_catalog.yaml"))
+    main_column, summary_column = st.columns([3.0, 1.0], gap="large")
+    with main_column:
+        defaults = get_main_flat_defaults(repo_root)
+        with render_create_card("Federation", "Configure the scale and schedule of federated training.", key="setup-federation"):
+            render_flat_param_editors("", {path: defaults[path] for path in FEDERATION_BASE_PATHS}, widget_key_builder=base_widget_key)
+        with render_create_card("Training", "Model, trainer, optimizer and objective.", key="setup-training"):
+            model_columns = st.columns(2)
+            with model_columns[0]:
+                render_select_input("Model", options["model"], key="ui_model")
+                render_research_hint(catalog, "model", st.session_state["ui_model"])
+                render_component_section(repo_root, "model", st.session_state["ui_model"], primary_paths=set())
+            with model_columns[1]:
+                render_select_input("Model trainer", options["model_trainer"], key="ui_model_trainer")
+                render_component_section(repo_root, "model_trainer", st.session_state["ui_model_trainer"], primary_paths=set())
+            st.divider()
+            st.markdown("#### Optimizer")
+            render_select_input("Optimizer", options["optimizer"], key="ui_optimizer")
+            render_component_section(repo_root, "optimizer", st.session_state["ui_optimizer"], primary_paths={"lr", "weight_decay", "momentum"}, hidden_paths={"betas"}, advanced_extra=lambda: render_optimizer_betas(repo_root, st.session_state["ui_optimizer"]))
+            st.divider()
+            st.markdown("#### Loss")
+            render_select_input("Loss", options["loss"], key="ui_loss")
+            render_component_section(repo_root, "loss", st.session_state["ui_loss"], primary_paths={"config.reduction", "config.label_smoothing"})
+        with render_create_card("Tracking & Metrics", "Experiment logging and saved server metrics.", key="setup-tracking"):
+            render_logging_step(repo_root, options)
+        with render_create_card("Runtime & Resources", "Execution manager, batching and devices.", key="setup-runtime"):
+            render_technical_step(repo_root, options)
+    with summary_column:
+        render_create_summary()
+
+
 def render_launch_step(repo_root: Path) -> None:
-    st.markdown("### Launch")
-    template_override_text = st.session_state.get(TEMPLATE_OVERRIDES_KEY, "")
-    if template_override_text.strip():
-        st.text_area(
-            "Template overrides",
-            key=TEMPLATE_OVERRIDES_KEY,
-            height=140,
-        )
-    st.text_area(
-        "Raw Hydra overrides",
-        key="ui_raw_overrides",
-        height=180,
-    )
+    st.markdown("### Review & Launch")
+    st.caption("Review the resolved experiment configuration before starting the training process.")
+    with render_create_card("Experiment review", "High-signal settings that will be used for this run.", key="review"):
+        review_rows = build_experiment_summary(st.session_state)
+        review_cols = st.columns(2)
+        for index, (label, value) in enumerate(review_rows):
+            with review_cols[index % 2]:
+                st.markdown(f"**{label}:** {value}")
+
+    main_defaults = get_main_flat_defaults(repo_root)
+    identity_cols = st.columns(2)
+    with identity_cols[0]:
+        st.text_input("Run name", key="ui_run_name")
+    with identity_cols[1]:
+        render_value_widget("Random seed", base_widget_key("random_state"), main_defaults.get("random_state", 42))
 
     (
         form_payload,
@@ -1963,8 +2519,24 @@ def render_launch_step(repo_root: Path) -> None:
         template_overrides,
         template_override_text,
     ) = collect_form_payload(repo_root)
-    if errors:
-        st.error("\n".join(errors))
+    catalog = load_research_catalog(Path(__file__).with_name("research_catalog.yaml"))
+    method_metadata = metadata_for(catalog, "federated_method", form_payload["selected_groups"].get("federated_method", ""))
+    requirements = method_metadata.get("requirements", {})
+    check_errors, check_warnings = validate_experiment_state(
+        st.session_state,
+        requires_trust_dataset=isinstance(requirements, dict) and bool(requirements.get("requires_trust_dataset")),
+    )
+    st.markdown("#### Configuration checks")
+    for message in check_errors:
+        st.error(message)
+    for message in check_warnings:
+        st.warning(message)
+    if not errors and not check_errors and not check_warnings:
+        st.success("Ready to launch")
+
+    if errors or check_errors:
+        for message in errors:
+            st.error(message)
         run_disabled = True
         overrides: list[str] = []
     else:
@@ -1973,12 +2545,25 @@ def render_launch_step(repo_root: Path) -> None:
         duplicates = find_duplicate_override_keys(overrides)
         cmd = build_command(repo_root, overrides)
         manual_command = format_manual_shell_command(cmd, preview_stdout_path(repo_root, form_payload["run_name"]))
-        st.code(manual_command, language="bash")
+        resolved = {
+            "base": unflatten_mapping(form_payload["base_params"]),
+            "components": {
+                name: unflatten_mapping(values)
+                for name, values in form_payload["component_params"].items()
+                if values
+            },
+            "attack": form_payload.get("attack_params", {}),
+        }
+        with st.expander("Resolved configuration", expanded=False):
+            st.code(yaml.safe_dump(resolved, sort_keys=False, allow_unicode=False), language="yaml")
+        with st.expander("Launch command", expanded=False):
+            st.code(manual_command, language="bash")
+            st.caption("UI-launched runs use a unique log filename after their run ID is created.")
         if duplicates:
             st.caption("Duplicate override keys: " + ", ".join(duplicates))
         run_disabled = False
 
-    nav_cols = st.columns([1, 1, 5])
+    nav_cols = st.columns([1.1, 2.2, 3.7])
     with nav_cols[0]:
         st.button(
             "Back",
@@ -1989,7 +2574,7 @@ def render_launch_step(repo_root: Path) -> None:
         )
     with nav_cols[1]:
         run_clicked = st.button(
-            "Run",
+            "Launch experiment",
             key="run_button",
             disabled=run_disabled,
             use_container_width=True,
@@ -2044,7 +2629,17 @@ def render_step_navigation(current_step: str) -> None:
     if current_step == "launch":
         return
 
-    nav_cols = st.columns([1, 1, 5])
+    # A saved template already supplies every launch setting.  Its next step
+    # is the review screen; users can still open any preceding step in the
+    # stepper if they want to alter a value.
+    loaded_template = str(st.session_state.get(LOADED_TEMPLATE_KEY, "") or "")
+    next_step = (
+        "launch"
+        if current_step == "template" and loaded_template
+        else CREATE_STEPS[min(len(CREATE_STEPS) - 1, current_index + 1)]
+    )
+
+    nav_cols = st.columns([1.1, 2.5, 3.4])
     with nav_cols[0]:
         st.button(
             "Back",
@@ -2056,11 +2651,11 @@ def render_step_navigation(current_step: str) -> None:
         )
     with nav_cols[1]:
         st.button(
-            "Next",
+            "Continue without attack" if current_step == "attacks" and str(st.session_state.get(ATTACK_TYPE_KEY, "no_attack")) == "no_attack" else "Next",
             key=f"create_next_{current_step}",
             disabled=current_index == len(CREATE_STEPS) - 1,
             on_click=set_create_step,
-            args=[CREATE_STEPS[min(len(CREATE_STEPS) - 1, current_index + 1)]],
+            args=[next_step],
             use_container_width=True,
         )
 
@@ -2083,26 +2678,21 @@ def render_create_page(
 
     render_create_stepper()
     current_step = st.session_state.get(CREATE_STEP_KEY, CREATE_STEPS[0])
-
+    catalog = load_research_catalog(Path(__file__).with_name("research_catalog.yaml"))
     if current_step == "template":
         render_template_section(defaults, templates)
-    elif current_step == "run":
-        render_run_setup_step(repo_root)
-    elif current_step == "setup":
-        render_data_setup_step(repo_root, options)
     elif current_step == "method":
-        render_method_step(repo_root, options)
-    elif current_step == "logging":
-        render_logging_step(repo_root, options)
-    elif current_step == "training":
-        render_training_step(repo_root, options)
+        render_method_step(repo_root, options, catalog)
+    elif current_step == "selector":
+        render_selector_step(repo_root, options, catalog)
+    elif current_step == "dataset":
+        render_dataset_step(repo_root, options, catalog)
     elif current_step == "attacks":
-        render_attacks_step(repo_root, options)
-    elif current_step == "technical":
-        render_technical_step(repo_root, options)
+        render_attacks_catalog_step(repo_root, options, catalog)
+    elif current_step == "setup":
+        render_experiment_setup_step(repo_root, options)
     else:
         render_launch_step(repo_root)
-
     render_step_navigation(current_step)
 
 
@@ -2113,6 +2703,107 @@ def render_kv_table(rows: list[tuple[str, Any]]) -> None:
             f"<div class='fx-kv-label'>{label}</div><div>{value if value not in (None, '') else '-'}</div>"
         )
     st.markdown("<div class='fx-kv'>" + "".join(rendered) + "</div>", unsafe_allow_html=True)
+
+
+def format_metric_value(value: float) -> str:
+    return f"{value:.8g}"
+
+
+def render_analytics_view(repo_root: Path, run: dict[str, Any], meta: dict[str, Any]) -> None:
+    """Render a graceful MLflow-backed single-run research summary."""
+
+    mlflow_context = get_run_mlflow_context(repo_root, run, meta)
+    summary_cols = st.columns([5.1, 1.1])
+    with summary_cols[0]:
+        st.markdown("### Run summary")
+    with summary_cols[1]:
+        if st.button("Refresh", key="analytics_refresh", use_container_width=True):
+            rerun_app()
+
+    render_kv_table(
+        [
+            ("Run", meta["name"]),
+            ("Run id", run["run_id"]),
+            ("Status", meta["status"]),
+            ("Started", meta["started_at"] or meta["created_at"] or "N/A"),
+            ("Finished", meta["finished_at"] or ("Running" if meta["status"] == "running" else "N/A")),
+            ("Duration", meta["duration"]),
+            ("MLflow run ID", mlflow_context["run_id"] or "N/A"),
+        ]
+    )
+
+    if not mlflow_context["enabled"]:
+        st.info("No MLflow metrics were configured for this run.")
+        return
+    if not mlflow_context["run_id"]:
+        if meta["status"] in {"running", "stopping"}:
+            st.info("MLflow is still starting; refresh this tab when the run has logged its ID.")
+        else:
+            st.info("MLflow run ID is unavailable for this run. It may be a legacy record.")
+        return
+
+    result = load_metric_histories(
+        mlflow_context["run_id"],
+        mlflow_context["tracking_uri"],
+    )
+    if result.error:
+        st.warning(result.error)
+    if result.metric_errors:
+        st.caption(
+            "Some metric histories could not be read: "
+            + ", ".join(sorted(result.metric_errors))
+        )
+    if not result.points:
+        if not result.error:
+            st.info("No metrics have been logged yet.")
+        return
+
+    metrics = available_metric_names(result.points)
+    final_metrics = load_final_metrics(result.points)
+    if final_metrics and meta["status"] not in {"running", "stopping"}:
+        st.markdown("### Final metrics")
+        headline_metrics = sorted(
+            final_metrics,
+            key=lambda item: (
+                not any(token in item.metric.lower() for token in ("accuracy", "acc", "loss")),
+                item.metric.lower(),
+            ),
+        )[:3]
+        headline_cols = st.columns(len(headline_metrics))
+        for column, item in zip(headline_cols, headline_metrics):
+            with column:
+                render_card(item.metric, format_metric_value(item.value))
+        render_final_metrics_table(
+            [
+                {"Metric": item.metric, "Value": format_metric_value(item.value)}
+                for item in final_metrics
+            ],
+            key="final-metrics",
+        )
+
+    st.markdown("### Metric history")
+    selector_key = f"analytics_metrics_{safe_key(str(run['run_id']))}"
+    if selector_key not in st.session_state:
+        st.session_state[selector_key] = metrics[: min(3, len(metrics))]
+    selected_metrics = st.multiselect(
+        "Metrics",
+        options=metrics,
+        key=selector_key,
+        help="Metric names are discovered directly from the saved MLflow run.",
+    )
+    if not selected_metrics:
+        st.caption("Select one or more metrics to show their history.")
+    chart_columns = st.columns(2)
+    for index, metric in enumerate(selected_metrics):
+        chart_frame = metric_points_frame(
+            [point for point in result.points if point.metric == metric],
+            run_labels={mlflow_context["run_id"]: meta["name"]},
+        )
+        if chart_frame.empty or chart_frame["x"].isna().all():
+            st.info(f"{metric}: no usable step or timestamp was recorded.")
+            continue
+        with chart_columns[index % 2]:
+            render_metric_chart_card(metric, chart_frame)
 
 
 def render_parameters_view(repo_root: Path, run: dict[str, Any], meta: dict[str, Any]) -> None:
@@ -2227,6 +2918,83 @@ def render_parameters_view(repo_root: Path, run: dict[str, Any], meta: dict[str,
         )
 
 
+def render_provenance_view(run: dict[str, Any]) -> None:
+    run_dir = Path(run["run_dir"])
+    provenance = load_provenance(run_dir)
+    if provenance is None:
+        st.info("Provenance was not captured for this run.")
+        return
+
+    git = provenance.get("git", {}) if isinstance(provenance, dict) else {}
+    if not isinstance(git, dict):
+        st.warning("Saved provenance has an unexpected format.")
+        return
+
+    dirty_value = git.get("dirty")
+    dirty_label = "Dirty" if dirty_value is True else "Clean" if dirty_value is False else "N/A"
+    st.markdown("### Git")
+    render_kv_table(
+        [
+            ("Captured", provenance.get("captured_at") or "N/A"),
+            ("Git", "Available" if git.get("available") else "Unavailable"),
+            ("Repository root", git.get("repo_root") or "N/A"),
+            ("Git commit", git.get("commit") or "N/A"),
+            ("Branch", git.get("branch") or ("Detached HEAD" if git.get("detached_head") else "N/A")),
+            ("Git describe", git.get("describe") or "N/A"),
+            ("Remote", git.get("remote_origin") or "N/A"),
+            ("Working tree", dirty_label),
+        ]
+    )
+    if git.get("error"):
+        st.warning(str(git["error"]))
+
+    file_sections = [
+        ("Modified files", "modified_files"),
+        ("Staged files", "staged_files"),
+        ("Unstaged files", "unstaged_files"),
+        ("Untracked files", "untracked_files"),
+    ]
+    for title, field in file_sections:
+        files = git.get(field, [])
+        with st.expander(title, expanded=False):
+            if isinstance(files, list) and files:
+                st.code("\n".join(str(path) for path in files), language="text")
+            else:
+                st.caption("None")
+
+    if dirty_value is not True:
+        return
+
+    patch_files = provenance.get("patch_files", {})
+    if not isinstance(patch_files, dict):
+        return
+    patch_sections = [
+        ("Combined diff", "combined"),
+        ("Staged diff", "staged"),
+        ("Unstaged diff", "unstaged"),
+    ]
+    max_preview_chars = 12_000
+    for title, patch_key in patch_sections:
+        file_name = patch_files.get(patch_key)
+        if not file_name:
+            continue
+        patch_path = run_dir / str(file_name)
+        if not patch_path.is_file():
+            continue
+        try:
+            patch_text = patch_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        with st.expander(title, expanded=False):
+            if not patch_text:
+                st.caption("No changes.")
+                continue
+            preview = patch_text[:max_preview_chars]
+            st.code(preview, language="diff")
+            if len(preview) < len(patch_text):
+                st.caption("Preview truncated. The complete patch is available in Files.")
+
+
 def render_journal_view(run: dict[str, Any]) -> None:
     events = read_run_events(Path(run["run_dir"]))
     if not events:
@@ -2266,9 +3034,37 @@ def render_files_view(repo_root: Path, run: dict[str, Any]) -> None:
     spec_path = run_dir / "spec.yaml"
     status_path = run_dir / "status.json"
     command_path = run_dir / "command.sh"
-    st.code(command_path.read_text(encoding="utf-8"), language="bash")
-    st.code(spec_path.read_text(encoding="utf-8"), language="yaml")
-    st.code(status_path.read_text(encoding="utf-8"), language="json")
+
+    for label, file_path, language in [
+        ("Command", command_path, "bash"),
+        ("Specification", spec_path, "yaml"),
+        ("Status", status_path, "json"),
+    ]:
+        st.markdown(f"#### {label}")
+        if file_path.is_file():
+            st.code(file_path.read_text(encoding="utf-8", errors="replace"), language=language)
+        else:
+            st.caption(f"Not available: {file_path.name}")
+
+    provenance = load_provenance(run_dir)
+    patch_files = provenance.get("patch_files", {}) if isinstance(provenance, dict) else {}
+    git = provenance.get("git", {}) if isinstance(provenance, dict) else {}
+    if isinstance(patch_files, dict) and isinstance(git, dict) and git.get("dirty") is True:
+        available_patches = [
+            run_dir / str(file_name)
+            for file_name in patch_files.values()
+            if (run_dir / str(file_name)).is_file()
+        ]
+        if available_patches:
+            st.markdown("#### Git patch files")
+            for patch_path in available_patches:
+                st.download_button(
+                    f"Download {patch_path.name}",
+                    data=patch_path.read_bytes(),
+                    file_name=patch_path.name,
+                    mime="text/x-diff",
+                    key=f"download_{safe_key(run['run_id'])}_{safe_key(patch_path.name)}",
+                )
     st.write(format_rel_path(repo_root, run_dir))
 
 
@@ -2289,6 +3085,235 @@ def render_overview_view(repo_root: Path, run: dict[str, Any], meta: dict[str, A
     )
     if meta["mlflow_url"]:
         st.markdown(f"[MLflow]({meta['mlflow_url']})")
+
+
+def comparison_run_label(run: dict[str, Any], meta: dict[str, Any]) -> str:
+    run_id = str(run["run_id"])
+    short_id = run_id if len(run_id) <= 24 else f"{run_id[:19]}…{run_id[-4:]}"
+    return f"{meta['name']} · {short_id}"
+
+
+def _sync_compare_picker() -> None:
+    selected = set_compare_run_ids(
+        st.session_state.get(COMPARE_PICKER_KEY, []),
+        sync_picker=False,
+    )
+    sync_query_params(VIEW_COMPARE, compare_run_ids=selected)
+
+
+def _add_compare_run_from_picker() -> None:
+    selected_label = str(st.session_state.get(COMPARE_ADD_RUN_KEY, "") or "")
+    label_map = st.session_state.get(COMPARE_ADD_RUN_MAP_KEY, {})
+    run_id = str(label_map.get(selected_label, selected_label) if isinstance(label_map, dict) else selected_label)
+    if not run_id:
+        return
+    set_compare_run_ids([*normalize_compare_run_ids(st.session_state.get(COMPARE_RUN_IDS_KEY, [])), run_id])
+    st.session_state[COMPARE_ADD_RUN_KEY] = ""
+    sync_query_params(VIEW_COMPARE, compare_run_ids=st.session_state[COMPARE_RUN_IDS_KEY])
+
+
+@st.fragment(run_every="1s")
+def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
+    # A fragment rerun does not execute ``main`` again, therefore refresh the
+    # registry here as well as the MLflow metric histories below.
+    runs = list_runs(repo_root)
+    st.markdown("<div class='fx-detail-subtitle'>Runs / Compare</div>", unsafe_allow_html=True)
+    top_cols = st.columns([5.1, 1.1])
+    with top_cols[0]:
+        st.markdown(brand_markup(suffix="Compare", level=1), unsafe_allow_html=True)
+    with top_cols[1]:
+        if st.button("Dashboard", key="compare_to_dashboard", use_container_width=True):
+            clear_compare_selection()
+            navigate_to(VIEW_DASHBOARD)
+            rerun_app()
+
+    run_map = {str(run["run_id"]): run for run in runs}
+    selected_ids = [
+        run_id
+        for run_id in normalize_compare_run_ids(
+            st.session_state.get(COMPARE_RUN_IDS_KEY, [])
+        )
+        if run_id in run_map
+    ]
+    if selected_ids != st.session_state.get(COMPARE_RUN_IDS_KEY, []):
+        set_compare_run_ids(selected_ids)
+
+    metas = {
+        run_id: extract_run_meta(repo_root, run)
+        for run_id, run in run_map.items()
+    }
+    labels = {
+        run_id: comparison_run_label(run, metas[run_id])
+        for run_id, run in run_map.items()
+    }
+    available_ids = [run_id for run_id in run_map if run_id not in selected_ids]
+    available_labels = {labels[run_id]: run_id for run_id in available_ids}
+    st.session_state[COMPARE_ADD_RUN_MAP_KEY] = available_labels
+    add_cols = st.columns([1.15, 4.85])
+    with add_cols[0]:
+        st.markdown("<div class='fx-selection-count'>Selected runs</div>", unsafe_allow_html=True)
+    with add_cols[1]:
+        st.selectbox(
+            "Add run",
+            options=[""] + list(available_labels),
+            key=COMPARE_ADD_RUN_KEY,
+            format_func=lambda label: "Add a run…" if not label else label,
+            on_change=_add_compare_run_from_picker,
+            label_visibility="collapsed",
+        )
+    if not selected_ids:
+        st.info("Select at least one run to start a comparison.")
+        return
+
+    selected_runs = [run_map[run_id] for run_id in selected_ids]
+    selected_metas = [metas[run_id] for run_id in selected_ids]
+    with st.container(key="compare-selected-runs"):
+        for run_id, meta in zip(selected_ids, selected_metas):
+            with st.container(key=f"compare-chip-{safe_key(run_id)}"):
+                chip_cols = st.columns([5.0, .8])
+                with chip_cols[0]:
+                    st.markdown(
+                        f"**{labels[run_id]}** &nbsp; {format_status_badge(meta['status'])}",
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(f"{meta['started_at'] or meta['created_at'] or 'N/A'} · {meta['duration']}")
+                with chip_cols[1]:
+                    if st.button("Remove", key=f"compare_remove_{safe_key(run_id)}", use_container_width=True):
+                        set_compare_run_ids([item for item in selected_ids if item != run_id])
+                        sync_query_params(VIEW_COMPARE, compare_run_ids=st.session_state[COMPARE_RUN_IDS_KEY])
+                        rerun_app()
+    if len(selected_ids) < 2:
+        st.info("Add another run above to overlay metrics and inspect configuration differences.")
+        return
+
+    all_points = []
+    points_by_run: dict[str, list[Any]] = {}
+    metric_messages: list[str] = []
+    for run_id, run, meta in zip(selected_ids, selected_runs, selected_metas):
+        mlflow_context = get_run_mlflow_context(repo_root, run, meta)
+        if not mlflow_context["enabled"]:
+            metric_messages.append(f"{labels[run_id]}: MLflow was not configured.")
+            points_by_run[run_id] = []
+            continue
+        if not mlflow_context["run_id"]:
+            metric_messages.append(f"{labels[run_id]}: MLflow run ID is not available yet.")
+            points_by_run[run_id] = []
+            continue
+        result = load_metric_histories(
+            mlflow_context["run_id"],
+            mlflow_context["tracking_uri"],
+        )
+        if result.error:
+            metric_messages.append(f"{labels[run_id]}: {result.error}")
+        if result.metric_errors:
+            metric_messages.append(
+                f"{labels[run_id]}: unreadable metrics: "
+                + ", ".join(sorted(result.metric_errors))
+            )
+        run_points = [replace(point, run_id=run_id) for point in result.points]
+        points_by_run[run_id] = run_points
+        all_points.extend(run_points)
+
+    if metric_messages:
+        with st.expander("Metric loading details", expanded=False):
+            for message in metric_messages:
+                st.caption(message)
+
+    final_by_run = {
+        run_id: {item.metric: item for item in load_final_metrics(points_by_run.get(run_id, []))}
+        for run_id in selected_ids
+    }
+    final_metric_names = sorted(
+        {
+            metric
+            for final_metrics in final_by_run.values()
+            for metric in final_metrics
+        }
+    )
+    st.markdown("### Final metrics comparison")
+    if final_metric_names:
+        final_rows: list[dict[str, str]] = []
+        for metric in final_metric_names:
+            row: dict[str, str] = {"Metric": metric}
+            for run_id in selected_ids:
+                value = final_by_run[run_id].get(metric)
+                row[labels[run_id]] = format_metric_value(value.value) if value else "N/A"
+            final_rows.append(row)
+        render_final_metrics_table(final_rows, key="compare-final-metrics")
+    else:
+        st.caption("No final metrics are available yet.")
+
+    metrics = available_metric_names(all_points)
+    st.markdown("### Metric history")
+    if metrics:
+        metric_presence = {
+            metric: sum(any(point.metric == metric for point in run_points) for run_points in points_by_run.values())
+            for metric in metrics
+        }
+        ordered_metrics = sorted(metrics, key=lambda metric: (-metric_presence[metric], metric.lower()))
+        selector_key = "compare_selected_metrics"
+        if selector_key not in st.session_state:
+            st.session_state[selector_key] = ordered_metrics[: min(2, len(ordered_metrics))]
+        selected_metrics = st.multiselect(
+            "Metrics", options=ordered_metrics, key=selector_key,
+            help="Metrics available in more selected runs are shown first.",
+        )
+        chart_columns = st.columns(2)
+        for index, metric in enumerate(selected_metrics):
+            chart_frame = metric_points_frame(
+                [point for point in all_points if point.metric == metric], run_labels=labels,
+            )
+            with chart_columns[index % 2]:
+                if chart_frame.empty or chart_frame["x"].isna().all():
+                    st.info(f"{metric}: no usable step or timestamp was recorded.")
+                else:
+                    render_metric_chart_card(metric, chart_frame, compare=True)
+    else:
+        st.info("No MLflow metric history is available for the selected runs.")
+
+    st.markdown("### Configuration diff")
+    show_identical = st.checkbox(
+        "Show unchanged",
+        key="compare_show_identical_parameters",
+    )
+    configs = {
+        run_id: experiment_config_from_spec(metas[run_id]["spec"])
+        for run_id in selected_ids
+    }
+    diff_rows = build_config_diff(configs)
+    if not show_identical:
+        diff_rows = [row for row in diff_rows if row.differs]
+    if diff_rows:
+        config_rows: list[dict[str, str]] = []
+        for row in diff_rows:
+            rendered = {"Parameter": row.parameter}
+            for run_id in selected_ids:
+                rendered[labels[run_id]] = row.values.get(run_id, "N/A")
+            config_rows.append(rendered)
+        st.dataframe(pd.DataFrame(config_rows), use_container_width=True, hide_index=True)
+    elif show_identical:
+        st.caption("No saved configuration values are available for these runs.")
+    else:
+        st.caption("No differing saved configuration values.")
+
+    provenance_rows: list[dict[str, str]] = []
+    for run_id, run, meta in zip(selected_ids, selected_runs, selected_metas):
+        provenance = load_provenance(Path(run["run_dir"]))
+        git = provenance.get("git", {}) if isinstance(provenance, dict) else {}
+        if not isinstance(git, dict):
+            git = {}
+        dirty = git.get("dirty")
+        provenance_rows.append(
+            {
+                "Run": labels[run_id],
+                "Status": meta["status"],
+                "Commit": str(git.get("short_commit") or "N/A"),
+                "Branch": str(git.get("branch") or ("Detached HEAD" if git.get("detached_head") else "N/A")),
+                "Dirty": "yes" if dirty is True else "no" if dirty is False else "N/A",
+            }
+        )
+    st.markdown("### Git summary")
+    st.dataframe(pd.DataFrame(provenance_rows), use_container_width=True, hide_index=True)
 
 
 def render_run_header(meta: dict[str, Any], run: dict[str, Any]) -> None:
@@ -2325,22 +3350,32 @@ def render_run_detail_page(repo_root: Path, runs: list[dict[str, Any]], defaults
 
     meta = extract_run_meta(repo_root, run)
     mlflow_context = get_run_mlflow_context(repo_root, run, meta)
+    flash_message = str(st.session_state.get(FLASH_MESSAGE_KEY, "") or "")
+    if flash_message:
+        st.success(flash_message)
+        st.session_state[FLASH_MESSAGE_KEY] = ""
+    st.markdown(
+        f"<div class='fx-detail-subtitle'>Runs / {meta['name']}</div>",
+        unsafe_allow_html=True,
+    )
     header_cols = st.columns([4.8, 2.8])
     with header_cols[0]:
         render_run_header(meta, run)
     with header_cols[1]:
-        action_grid = st.columns(2)
+        action_grid = st.columns(3)
         with action_grid[0]:
-            if st.button("Dashboard", key="run_to_dashboard", use_container_width=True):
-                navigate_to(VIEW_DASHBOARD)
+            if st.button("Create Run", key="run_create", use_container_width=True):
+                set_create_step(CREATE_STEPS[0])
+                navigate_to(VIEW_CREATE)
                 rerun_app()
         with action_grid[1]:
-            can_stop = run.get("status") == "running"
-            if st.button("Stop", key="run_stop", disabled=not can_stop, use_container_width=True):
-                stop_run(Path(run["run_dir"]))
+            if st.button("Compare", key="run_compare", use_container_width=True):
+                clear_compare_selection()
+                set_compare_run_ids([run["run_id"]])
+                navigate_to(VIEW_COMPARE, compare_run_ids=[run["run_id"]])
                 rerun_app()
         with action_grid[0]:
-            if st.button("Clone", key="run_rerun", use_container_width=True):
+            if st.button("Clone", key="run_clone", use_container_width=True):
                 spec = meta["spec"]
                 snapshot = spec.get("ui_state_snapshot")
                 if snapshot:
@@ -2349,6 +3384,23 @@ def render_run_detail_page(repo_root: Path, runs: list[dict[str, Any]], defaults
                 navigate_to(VIEW_CREATE)
                 rerun_app()
         with action_grid[1]:
+            if st.button("Re-run", key="run_rerun", use_container_width=True):
+                try:
+                    new_status = rerun_saved_run(repo_root, Path(run["run_dir"]))
+                except (OSError, RuntimeError, ValueError) as exc:
+                    st.error(f"Could not re-run this experiment: {exc}")
+                else:
+                    st.session_state[FLASH_MESSAGE_KEY] = (
+                        f"Re-run started: {new_status.get('run_name', new_status['run_id'])}"
+                    )
+                    navigate_to(VIEW_RUN, run_id=new_status["run_id"])
+                    rerun_app()
+        with action_grid[2]:
+            can_stop = run.get("status") == "running"
+            if st.button("Stop", key="run_stop", disabled=not can_stop, use_container_width=True):
+                stop_run(Path(run["run_dir"]))
+                rerun_app()
+        with action_grid[2]:
             mlflow_clicked = st.button(
                 "MLflow",
                 key="run_mlflow_open",
@@ -2392,16 +3444,30 @@ def render_run_detail_page(repo_root: Path, runs: list[dict[str, Any]], defaults
                 except RuntimeError as exc:
                     st.error(str(exc))
 
-    tabs = st.tabs(["Logs", "Parameters", "Journal", "Files", "Overview"])
+    tabs = st.tabs(
+        [
+            "Analytics",
+            "Parameters",
+            "Git",
+            "Logs",
+            "Journal",
+            "Files",
+            "Overview",
+        ]
+    )
     with tabs[0]:
-        render_logs_view(run)
+        render_analytics_view(repo_root, run, meta)
     with tabs[1]:
         render_parameters_view(repo_root, run, meta)
     with tabs[2]:
-        render_journal_view(run)
+        render_provenance_view(run)
     with tabs[3]:
-        render_files_view(repo_root, run)
+        render_logs_view(run)
     with tabs[4]:
+        render_journal_view(run)
+    with tabs[5]:
+        render_files_view(repo_root, run)
+    with tabs[6]:
         render_overview_view(repo_root, run, meta)
 
 
@@ -2412,6 +3478,7 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
     install_keyboard_guard()
+    install_history_navigation_sync()
     apply_page_styles()
     install_button_palette_hook()
 
@@ -2444,6 +3511,8 @@ def main() -> None:
         render_create_page(repo_root, defaults, options, templates)
     elif view == VIEW_RUN:
         render_run_detail_page(repo_root, runs, defaults)
+    elif view == VIEW_COMPARE:
+        render_compare_page(repo_root, runs)
     else:
         render_dashboard_page(repo_root, runs)
     render_pending_browser_open()

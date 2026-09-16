@@ -16,6 +16,7 @@ from ui.launcher import (
     extract_mlflow_run_url_from_text,
     format_shell_command,
     get_local_mlflow_tracking_uri,
+    get_component_default_params,
     infer_mlflow_target,
     is_pid_alive,
     load_templates,
@@ -23,7 +24,9 @@ from ui.launcher import (
     parse_raw_overrides,
     persist_mlflow_metadata,
     read_status,
+    update_mlflow_url_from_log,
     write_status,
+    write_yaml_or_json,
 )
 
 
@@ -169,6 +172,33 @@ class LauncherTests(unittest.TestCase):
         self.assertNotIn("dataset@trust_dataset=null", overrides)
         self.assertNotIn("preaggregator=null", overrides)
 
+    def test_build_overrides_adds_attack_parameters_to_federated_params(self) -> None:
+        overrides = build_overrides(
+            {
+                "run_name": "attack-demo",
+                "selected_groups": {"logger": "base"},
+                "base_params": {"federated_params.clients_attack_types": "sign_flip"},
+                "component_params": {},
+                "attack_params": {"percent_of_changed_grads": 0.75},
+            },
+            [],
+        )
+
+        self.assertIn("+federated_params.percent_of_changed_grads=0.75", overrides)
+
+    def test_component_defaults_exclude_nested_hydra_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            config_dir = repo_root / "src" / "configs" / "losses"
+            config_dir.mkdir(parents=True)
+            (config_dir / "ce.yaml").write_text(
+                "config:\n  _target_: torch.nn.CrossEntropyLoss\n  reduction: mean\n",
+                encoding="utf-8",
+            )
+            defaults = get_component_default_params(repo_root, "loss", "ce")
+
+        self.assertEqual(defaults, {"config.reduction": "mean"})
+
     def test_is_pid_alive_rejects_invalid_pid(self) -> None:
         self.assertFalse(is_pid_alive(-1))
 
@@ -258,6 +288,27 @@ class LauncherTests(unittest.TestCase):
                 "training_params.batch_size=32",
             ],
         )
+
+    @unittest.skipUnless(find_spec("yaml") is not None, "PyYAML is not installed")
+    def test_base_logger_run_does_not_adopt_mlflow_id_from_a_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            run_dir = Path(tmp_dir) / "run"
+            run_dir.mkdir()
+            log_path = Path(tmp_dir) / "output.txt"
+            log_path.write_text(
+                "MLFLOW_RUN_ID=other-run\nMLFLOW_EXPERIMENT_ID=42\n",
+                encoding="utf-8",
+            )
+            write_yaml_or_json(
+                run_dir / "spec.yaml",
+                {"form_payload": {"selected_groups": {"logger": "base"}}},
+            )
+            status = {"run_id": "base-run", "status": "finished", "stdout_path": str(log_path)}
+
+            updated = update_mlflow_url_from_log(run_dir, status)
+
+            self.assertEqual(updated, status)
+            self.assertNotIn("mlflow_run_id", updated)
 
 
 if __name__ == "__main__":

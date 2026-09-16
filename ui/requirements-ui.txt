@@ -1,2 +1,3 @@
 streamlit
 pyyaml
+plotly>=5.24,<7
