@@ -5,6 +5,7 @@ import sys
 import time
 from dataclasses import replace
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,16 @@ try:
     from .styles import inject_global_styles, render_final_metrics_table, render_metric_chart_card
     from .create_run import build_experiment_summary, initial_dataset_roles, readable_label, readable_option, validate_experiment_state
     from .research_catalog import load_research_catalog, metadata_for, ordered_options
+    from .examples import (
+        ExampleDefinition,
+        available_preferred_metrics,
+        build_example_launch_plan,
+        build_group_id,
+        example_context_from_specs,
+        launch_example_suite,
+        load_examples,
+        ordered_examples,
+    )
 except ImportError:  # pragma: no cover - supports `streamlit run ui/run_ui.py`
     ui_dir = str(Path(__file__).resolve().parent)
     if ui_dir not in sys.path:
@@ -40,6 +51,16 @@ except ImportError:  # pragma: no cover - supports `streamlit run ui/run_ui.py`
     from styles import inject_global_styles, render_final_metrics_table, render_metric_chart_card
     from create_run import build_experiment_summary, initial_dataset_roles, readable_label, readable_option, validate_experiment_state
     from research_catalog import load_research_catalog, metadata_for, ordered_options
+    from examples import (
+        ExampleDefinition,
+        available_preferred_metrics,
+        build_example_launch_plan,
+        build_group_id,
+        example_context_from_specs,
+        launch_example_suite,
+        load_examples,
+        ordered_examples,
+    )
 
 try:
     from .launcher import (
@@ -124,6 +145,7 @@ VIEW_DASHBOARD = "dashboard"
 VIEW_CREATE = "create_run"
 VIEW_RUN = "run_detail"
 VIEW_COMPARE = "compare"
+VIEW_EXAMPLES = "examples"
 
 SELECTED_RUN_KEY = "ui_selected_run_id"
 COMPARE_RUN_IDS_KEY = "ui_compare_run_ids"
@@ -155,6 +177,10 @@ MLFLOW_TARGET_KEY = "ui_mlflow_target"
 MLFLOW_TARGET_APPLIED_KEY = "ui_mlflow_target_applied"
 PENDING_BROWSER_OPEN_KEY = "ui_pending_browser_open_url"
 PENDING_BROWSER_OPEN_NONCE_KEY = "ui_pending_browser_open_nonce"
+EXAMPLE_FLASH_KEY = "ui_example_flash"
+EXAMPLE_SELECTED_KEY = "ui_example_selected"
+COMPARE_METRIC_CONTEXT_KEY = "ui_compare_metric_context_id"
+PENDING_SCROLL_TOP_KEY = "ui_pending_scroll_top"
 
 GENERAL_UI_KEYS = {
     VIEW_KEY,
@@ -180,6 +206,10 @@ GENERAL_UI_KEYS = {
     MLFLOW_TARGET_APPLIED_KEY,
     PENDING_BROWSER_OPEN_KEY,
     PENDING_BROWSER_OPEN_NONCE_KEY,
+    EXAMPLE_FLASH_KEY,
+    EXAMPLE_SELECTED_KEY,
+    COMPARE_METRIC_CONTEXT_KEY,
+    PENDING_SCROLL_TOP_KEY,
 }
 
 SELECTION_KEYS = {
@@ -287,6 +317,29 @@ def rerun_app() -> None:
 def queue_browser_open(url: str) -> None:
     st.session_state[PENDING_BROWSER_OPEN_KEY] = str(url or "").strip()
     st.session_state[PENDING_BROWSER_OPEN_NONCE_KEY] = time.time_ns()
+
+
+def queue_scroll_top() -> None:
+    """Scroll after a navigation transition, never on fragment refreshes."""
+
+    st.session_state[PENDING_SCROLL_TOP_KEY] = time.time_ns()
+
+
+def render_pending_scroll_top() -> None:
+    nonce = int(st.session_state.get(PENDING_SCROLL_TOP_KEY, 0) or 0)
+    if not nonce:
+        return
+    st.session_state[PENDING_SCROLL_TOP_KEY] = 0
+    components.html(
+        f"""
+        <div style="display:none">{nonce}</div>
+        <script>
+        window.parent.scrollTo({{top: 0, left: 0, behavior: "auto"}});
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def render_pending_browser_open() -> None:
@@ -401,6 +454,8 @@ def install_button_palette_hook() -> None:
             "Run": "fx-button-primary",
             "Launch experiment": "fx-button-primary",
             "Compare selected": "fx-button-primary",
+            "Examples": "fx-button-examples",
+            "Launch example": "fx-button-examples",
             "Stop": "fx-button-danger"
           };
 
@@ -408,7 +463,8 @@ def install_button_palette_hook() -> None:
             rootDoc.querySelectorAll("button").forEach(function (button) {
               button.classList.remove(
                 "fx-button-primary",
-                "fx-button-danger"
+                "fx-button-danger",
+                "fx-button-examples"
               );
               const label = (button.innerText || button.textContent || "").trim();
               const className = labelsToClass[label];
@@ -711,8 +767,11 @@ def restore_view_from_query_params() -> None:
         view = params.get("view", [""])[0]
         run_id = params.get("run_id", [""])[0]
         compare_run_ids = params.get("runs", [""])[0]
-    if view in {VIEW_DASHBOARD, VIEW_CREATE, VIEW_RUN, VIEW_COMPARE}:
+    previous_view = str(st.session_state.get(VIEW_KEY, "") or "")
+    if view in {VIEW_DASHBOARD, VIEW_CREATE, VIEW_RUN, VIEW_COMPARE, VIEW_EXAMPLES}:
         st.session_state[VIEW_KEY] = view
+        if view == VIEW_COMPARE and previous_view != VIEW_COMPARE:
+            queue_scroll_top()
     if run_id:
         st.session_state[SELECTED_RUN_KEY] = run_id
     if compare_run_ids:
@@ -876,6 +935,10 @@ def build_default_state(repo_root: Path, options: dict[str, list[str]]) -> dict[
         TEMPLATE_PICKER_KEY: "",
         LOADED_TEMPLATE_KEY: "",
         CREATE_STEP_KEY: CREATE_STEPS[0],
+        EXAMPLE_FLASH_KEY: "",
+        EXAMPLE_SELECTED_KEY: "",
+        COMPARE_METRIC_CONTEXT_KEY: "",
+        PENDING_SCROLL_TOP_KEY: 0,
         PENDING_TEMPLATE_KEY: "",
         PENDING_RESET_KEY: False,
         PENDING_STEP_KEY: "",
@@ -937,6 +1000,8 @@ def navigate_to(
         st.session_state[SELECTED_RUN_KEY] = run_id
     if compare_run_ids is not None:
         set_compare_run_ids(compare_run_ids)
+    if view == VIEW_COMPARE:
+        queue_scroll_top()
     active_compare_ids = (
         normalize_compare_run_ids(st.session_state.get(COMPARE_RUN_IDS_KEY, []))
         if view == VIEW_COMPARE
@@ -1242,18 +1307,162 @@ def ensure_mlflow_tracking_uri(
     return True
 
 
-def render_sidebar() -> None:
+def reset_navigation_state() -> None:
+    """Discard temporary page choices before a top-level sidebar transition."""
+
+    clear_compare_selection()
+    st.session_state[EXAMPLE_SELECTED_KEY] = ""
+    st.session_state[EXAMPLE_FLASH_KEY] = ""
+    st.session_state[COMPARE_METRIC_CONTEXT_KEY] = ""
+    for key in list(st.session_state):
+        if key.startswith(COMPARE_CHECKBOX_PREFIX):
+            del st.session_state[key]
+    for key, value in {
+        DASHBOARD_NAME_FILTER_KEY: "",
+        DASHBOARD_METHOD_FILTER_KEY: "All",
+        DASHBOARD_DATASET_FILTER_KEY: "All",
+        DASHBOARD_STATUS_FILTER_KEY: "All",
+    }.items():
+        st.session_state[key] = value
+
+
+def render_sidebar(defaults: dict[str, Any]) -> None:
     with st.sidebar:
         st.markdown(brand_markup(level=2), unsafe_allow_html=True)
         if st.button("Dashboard", key="sidebar_dashboard", use_container_width=True):
-            if st.session_state.get(VIEW_KEY) == VIEW_COMPARE:
-                clear_compare_selection()
+            reset_navigation_state()
             navigate_to(VIEW_DASHBOARD)
             rerun_app()
         if st.button("Create Run", key="sidebar_create_run", use_container_width=True):
+            reset_navigation_state()
+            reset_form_to_defaults(defaults)
             set_create_step(CREATE_STEPS[0])
             navigate_to(VIEW_CREATE)
             rerun_app()
+        if st.button("Examples", key="sidebar_examples", use_container_width=True):
+            reset_navigation_state()
+            navigate_to(VIEW_EXAMPLES)
+            rerun_app()
+
+
+def examples_catalog_path() -> Path:
+    return Path(__file__).with_name("examples.yaml")
+
+
+def select_example(example_key: str) -> None:
+    st.session_state[EXAMPLE_SELECTED_KEY] = example_key
+
+
+def render_example_card(example: ExampleDefinition, *, selected: bool) -> bool:
+    state_suffix = "selected" if selected else "normal"
+    with st.container(key=f"example-card-selected-{example.key}" if selected else f"example-card-{state_suffix}-{example.key}"):
+        data = example.data
+        color = escape(str(data.get("category_color", "#7C3AED")))
+        is_interdependency = example.key == "interdependency"
+        tag_style = (
+            "background:#FFF7ED;color:#B54708;"
+            if is_interdependency
+            else ""
+        )
+        tags = "".join(
+            f"<span class='fx-example-tag' style='{tag_style}'>{escape(str(tag))}</span>"
+            for tag in data.get("tags", [])
+        )
+        st.markdown(
+            (
+                f"<div class='fx-example-category' style='color:{color}'>{escape(str(data.get('category', 'EXAMPLE')))}</div>"
+                f"<div class='fx-example-title'>{escape(example.title)}</div>"
+                f"<div class='fx-example-description'>{escape(str(data.get('description', '')))}</div>"
+                f"<div class='fx-example-tags'>{tags}</div>"
+                f"<div class='fx-example-footer'>{escape(str(data.get('comparison_footer', '')))}</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+        return st.button(
+            "Selected" if selected else "Choose example",
+            key=f"choose_example_{example.key}",
+            disabled=selected,
+            on_click=select_example,
+            args=[example.key],
+            use_container_width=True,
+        )
+
+
+def launch_example(repo_root: Path, example: ExampleDefinition) -> None:
+    """Launch a fixed curated suite with the deliberately simple defaults."""
+
+    st.session_state[MLFLOW_TARGET_KEY] = "local"
+    apply_mlflow_target_preset(repo_root, "local")
+    ensure_mlflow_tracking_uri(repo_root, "local")
+    tracking_uri = str(
+        st.session_state.get(component_widget_key("logger", "mlflow", "tracking_uri"), "") or ""
+    ).strip()
+    if not tracking_uri:
+        st.error("Local MLflow tracking URI could not be configured.")
+        return
+
+    base_env, _ = build_subprocess_env(disable_proxy=True, mlflow_tracking_uri=tracking_uri)
+    plan = build_example_launch_plan(
+        example,
+        group_id=build_group_id(example),
+        device="cpu",
+        gpu_ids=[],
+        seed=int(example.data.get("default_seed", 42)),
+        tracking_uri=tracking_uri,
+        base_env=base_env,
+    )
+    progress = st.progress(0, text="Starting example runs…")
+    with st.status("Starting example runs…", expanded=True) as status_box:
+        attempted = 0
+
+        def on_attempt(request, started, error) -> None:
+            nonlocal attempted
+            attempted += 1
+            mark = "✓" if started else "✗"
+            status_box.write(f"{mark} {attempted} / {len(plan)}  {request.display_label}")
+            progress.progress(attempted / len(plan), text=f"Starting {attempted} / {len(plan)} runs…")
+
+        statuses, errors = launch_example_suite(
+            plan,
+            start_run,
+            repo_root=repo_root,
+            mlflow_url=str(st.session_state.get("ui_mlflow_ui_url", "") or normalize_mlflow_ui_url(tracking_uri)),
+            on_attempt=on_attempt,
+        )
+        status_box.update(label="Example launch complete", state="complete")
+    if not statuses:
+        st.error("No child run could be started. " + " ".join(errors))
+        return
+    if errors:
+        st.session_state[EXAMPLE_FLASH_KEY] = "Some child runs could not start: " + " | ".join(errors)
+    clear_compare_selection()
+    run_ids = [str(status["run_id"]) for status in statuses]
+    set_compare_run_ids(run_ids)
+    navigate_to(VIEW_COMPARE, compare_run_ids=run_ids)
+    rerun_app()
+
+
+def render_examples_page(repo_root: Path) -> None:
+    examples = load_examples(examples_catalog_path())
+    selected_key = str(st.session_state.get(EXAMPLE_SELECTED_KEY, "") or "")
+    if selected_key not in examples:
+        selected_key = ""
+        st.session_state[EXAMPLE_SELECTED_KEY] = ""
+    st.markdown(brand_markup(suffix="Examples", level=1), unsafe_allow_html=True)
+    st.caption("Choose a curated suite, then launch it on CPU with local MLflow tracking.")
+    cards = st.columns(2, gap="large")
+    for column, example in zip(cards, ordered_examples(examples)):
+        with column:
+            render_example_card(example, selected=example.key == selected_key)
+    launch_column = st.columns([1.0, 1.25, 1.0])[1]
+    with launch_column:
+        if st.button(
+            "Launch example",
+            key="examples_launch",
+            disabled=not selected_key,
+            use_container_width=True,
+        ):
+            launch_example(repo_root, examples[selected_key])
 
 
 def format_status_badge(status: str) -> str:
@@ -1302,6 +1511,24 @@ def first_non_empty(*values: Any) -> str:
     return ""
 
 
+def saved_override_values(spec: dict[str, Any]) -> dict[str, str]:
+    """Read last-wins Hydra values for runs created outside the form UI."""
+
+    values: dict[str, str] = {}
+    overrides = spec.get("overrides", [])
+    if not isinstance(overrides, list):
+        return values
+    for raw_override in overrides:
+        override = str(raw_override).strip()
+        while override.startswith(("+", "~")):
+            override = override[1:]
+        if "=" not in override:
+            continue
+        key, value = override.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
 def extract_run_meta(repo_root: Path, run: dict[str, Any]) -> dict[str, Any]:
     run_dir = Path(run["run_dir"])
     spec = read_spec(run_dir)
@@ -1309,26 +1536,32 @@ def extract_run_meta(repo_root: Path, run: dict[str, Any]) -> dict[str, Any]:
     selections = payload.get("selected_groups", {})
     base_params = payload.get("base_params", {})
     old_form_values = spec.get("form_values", {})
+    override_values = saved_override_values(spec)
 
     dataset_name = first_non_empty(
         selections.get("train_dataset"),
         old_form_values.get("dataset"),
+        override_values.get("dataset@train_dataset"),
     )
     method_name = first_non_empty(
         selections.get("federated_method"),
         old_form_values.get("federated_method"),
+        override_values.get("federated_method"),
     )
     logger_name = first_non_empty(
         selections.get("logger"),
         old_form_values.get("logger"),
+        override_values.get("logger"),
     )
     rounds = first_non_empty(
         base_params.get("federated_params.communication_rounds"),
         old_form_values.get("communication_rounds"),
+        override_values.get("federated_params.communication_rounds"),
     )
     clients = first_non_empty(
         base_params.get("federated_params.amount_of_clients"),
         old_form_values.get("amount_of_clients"),
+        override_values.get("federated_params.amount_of_clients"),
     )
     log_path = first_non_empty(
         spec.get("output_log_path"),
@@ -2709,9 +2942,18 @@ def format_metric_value(value: float) -> str:
     return f"{value:.8g}"
 
 
+@st.fragment(run_every="1s")
 def render_analytics_view(repo_root: Path, run: dict[str, Any], meta: dict[str, Any]) -> None:
     """Render a graceful MLflow-backed single-run research summary."""
 
+    # Fragment reruns do not execute the surrounding run-detail page.  Reload
+    # the registry so status, MLflow IDs and newly logged charts appear live.
+    fresh_run = next(
+        (item for item in list_runs(repo_root) if item.get("run_id") == run.get("run_id")),
+        run,
+    )
+    run = fresh_run
+    meta = extract_run_meta(repo_root, run)
     mlflow_context = get_run_mlflow_context(repo_root, run, meta)
     summary_cols = st.columns([5.1, 1.1])
     with summary_cols[0]:
@@ -3088,6 +3330,9 @@ def render_overview_view(repo_root: Path, run: dict[str, Any], meta: dict[str, A
 
 
 def comparison_run_label(run: dict[str, Any], meta: dict[str, Any]) -> str:
+    batch = (meta.get("spec", {}) or {}).get("example_batch", {})
+    if isinstance(batch, dict) and batch.get("run_label"):
+        return str(batch["run_label"])
     run_id = str(run["run_id"])
     short_id = run_id if len(run_id) <= 24 else f"{run_id[:19]}…{run_id[-4:]}"
     return f"{meta['name']} · {short_id}"
@@ -3112,7 +3357,7 @@ def _add_compare_run_from_picker() -> None:
     sync_query_params(VIEW_COMPARE, compare_run_ids=st.session_state[COMPARE_RUN_IDS_KEY])
 
 
-@st.fragment(run_every="1s")
+@st.fragment(run_every="0.6s")
 def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
     # A fragment rerun does not execute ``main`` again, therefore refresh the
     # registry here as well as the MLflow metric histories below.
@@ -3146,6 +3391,17 @@ def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
         run_id: comparison_run_label(run, metas[run_id])
         for run_id, run in run_map.items()
     }
+    selected_example_context = example_context_from_specs(
+        [metas[run_id]["spec"] for run_id in selected_ids]
+    )
+    example_definition: ExampleDefinition | None = None
+    if selected_example_context:
+        try:
+            example_definition = load_examples(examples_catalog_path()).get(
+                str(selected_example_context.get("example_key", ""))
+            )
+        except (OSError, ValueError):
+            example_definition = None
     available_ids = [run_id for run_id in run_map if run_id not in selected_ids]
     available_labels = {labels[run_id]: run_id for run_id in available_ids}
     st.session_state[COMPARE_ADD_RUN_MAP_KEY] = available_labels
@@ -3164,6 +3420,32 @@ def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
     if not selected_ids:
         st.info("Select at least one run to start a comparison.")
         return
+
+    example_flash = str(st.session_state.get(EXAMPLE_FLASH_KEY, "") or "")
+    if example_flash:
+        st.warning(example_flash)
+        st.session_state[EXAMPLE_FLASH_KEY] = ""
+    if selected_example_context:
+        title = (
+            example_definition.title
+            if example_definition is not None
+            else str(selected_example_context.get("example_title", "Example comparison"))
+        )
+        description = (
+            str(example_definition.data.get("description", ""))
+            if example_definition is not None
+            else "Coordinated Example runs were launched together."
+        )
+        st.markdown(
+            (
+                "<div class='fx-example-context'>"
+                f"<div class='fx-example-context-title'>{escape(title)}</div>"
+                f"<div class='fx-detail-subtitle'>{escape(description)}</div>"
+                f"<div class='fx-detail-subtitle' style='margin-top:.35rem'>{escape(str(selected_example_context.get('run_count', len(selected_ids))))} coordinated runs</div>"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
 
     selected_runs = [run_map[run_id] for run_id in selected_ids]
     selected_metas = [metas[run_id] for run_id in selected_ids]
@@ -3252,7 +3534,18 @@ def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
         }
         ordered_metrics = sorted(metrics, key=lambda metric: (-metric_presence[metric], metric.lower()))
         selector_key = "compare_selected_metrics"
-        if selector_key not in st.session_state:
+        context_id = ""
+        if selected_example_context:
+            context_id = (
+                f"{selected_example_context.get('example_key', '')}:"
+                f"{selected_example_context.get('group_id', '')}"
+            )
+        if context_id and st.session_state.get(COMPARE_METRIC_CONTEXT_KEY) != context_id:
+            preferred = available_preferred_metrics(selected_example_context, ordered_metrics)
+            if preferred:
+                st.session_state[selector_key] = preferred
+                st.session_state[COMPARE_METRIC_CONTEXT_KEY] = context_id
+        elif selector_key not in st.session_state:
             st.session_state[selector_key] = ordered_metrics[: min(2, len(ordered_metrics))]
         selected_metrics = st.multiselect(
             "Metrics", options=ordered_metrics, key=selector_key,
@@ -3267,9 +3560,28 @@ def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
                 if chart_frame.empty or chart_frame["x"].isna().all():
                     st.info(f"{metric}: no usable step or timestamp was recorded.")
                 else:
-                    render_metric_chart_card(metric, chart_frame, compare=True)
+                    title_map = {
+                        str(item.get("metric")): str(item.get("label"))
+                        for item in (example_definition.preferred_metrics if example_definition else [])
+                    }
+                    render_metric_chart_card(
+                        metric,
+                        chart_frame,
+                        compare=True,
+                        display_title=title_map.get(metric),
+                    )
     else:
-        st.info("No MLflow metric history is available for the selected runs.")
+        if selected_example_context:
+            st.status("Starting example runs…", state="running", expanded=False)
+            st.caption(
+                f"{len(selected_ids)} runs are running in parallel. Metric charts will appear automatically as soon as MLflow begins reporting results."
+            )
+        else:
+            st.info("No MLflow metric history is available for the selected runs.")
+    if selected_example_context and all_points and any(
+        not points_by_run.get(run_id) for run_id in selected_ids
+    ):
+        st.caption("Some Example runs are still starting; charts show the metric histories currently available.")
 
     st.markdown("### Configuration diff")
     show_identical = st.checkbox(
@@ -3504,17 +3816,20 @@ def main() -> None:
         st.error(str(exc))
         st.stop()
 
-    render_sidebar()
+    render_sidebar(defaults)
     runs = list_runs(repo_root)
     view = st.session_state.get(VIEW_KEY, VIEW_DASHBOARD)
     if view == VIEW_CREATE:
         render_create_page(repo_root, defaults, options, templates)
+    elif view == VIEW_EXAMPLES:
+        render_examples_page(repo_root)
     elif view == VIEW_RUN:
         render_run_detail_page(repo_root, runs, defaults)
     elif view == VIEW_COMPARE:
         render_compare_page(repo_root, runs)
     else:
         render_dashboard_page(repo_root, runs)
+    render_pending_scroll_top()
     render_pending_browser_open()
 
 

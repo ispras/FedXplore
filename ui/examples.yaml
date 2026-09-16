@@ -1,0 +1,106 @@
+examples:
+  interdependency:
+    order: 10
+    category: INTERDEPENDENCIES
+    category_color: "#D97706"
+    title: "Client Selection × Byzantine Robustness"
+    description: "Explore how client-selection policy changes robust federated aggregation under adversarial clients. This suite uses a lightweight synthetic 2D classification problem and a deterministic binary label-flip attack, comparing Centered Clipping under Uniform, Power-of-Choice and Fed-CBS selection with clean and FedAvg reference runs."
+    tags: ["5 runs", "Synthetic 2D", "Logistic Regression", "Robustness", "Client Selection"]
+    comparison_footer: "Default comparison: Test loss · Test accuracy"
+    group_prefix: interdependency_toy
+    hydra_output_root: outputs/interdependency_toy_parallel
+    mlflow_experiment: "FedXplore Toy Examples"
+    default_device: cuda
+    default_seed: 24
+    execution_summary: ["5 parallel runs", "20 clients · 10 per round", "40 communication rounds", "Synthetic 2D · Logistic Regression", "Binary Label Flip: 35%"]
+    preferred_metrics:
+      - {metric: "test/loss", label: "Test loss"}
+      - {metric: "test/Accuracy_overall", label: "Test accuracy"}
+    common_overrides:
+      - dataset@train_dataset=synthetic_2d
+      - dataset@test_dataset=synthetic_2d
+      - model=logistic_regression
+      - model_trainer=image
+      - logger=mlflow
+      - optimizer=sgd
+      - optimizer.lr=0.1
+      - distribution=dirichlet
+      - distribution.alpha=2.0
+      - training_params.batch_size=64
+      - training_params.num_workers=0
+      - manager.batch_generator.batch_size=10
+      - federated_params.amount_of_clients=20
+      - federated_params.client_subset_size=10
+      - federated_params.communication_rounds=40
+      - federated_params.print_client_metrics=False
+      - federated_params.server_saving_metrics=[]
+    runs:
+      - condition: clean_cc_uniform
+        label: "Clean · CC + Uniform"
+        run_name: "Interdependency · Clean · CC + Uniform"
+        method: central_clip
+        overrides: [federated_method=central_clip, federated_method.tau_clip=0.2, client_selector=uniform, federated_params.clients_attack_types=no_attack, federated_params.prop_attack_clients=0.0, federated_params.attack_scheme=no_attack, federated_params.prop_attack_rounds=0.0]
+      - condition: labelflip_cc_uniform
+        label: "Label Flip · CC + Uniform"
+        run_name: "Interdependency · Label Flip · CC + Uniform"
+        method: central_clip
+        overrides: [federated_method=central_clip, federated_method.tau_clip=0.2, client_selector=uniform, federated_params.clients_attack_types=binary_label_flip, federated_params.prop_attack_clients=0.35, federated_params.attack_scheme=constant, federated_params.prop_attack_rounds=1.0]
+      - condition: labelflip_cc_pow
+        label: "Label Flip · CC + PoW"
+        run_name: "Interdependency · Label Flip · CC + PoW"
+        method: central_clip
+        overrides: [federated_method=central_clip, federated_method.tau_clip=0.2, client_selector=pow, client_selector.candidate_set_size=15, federated_params.clients_attack_types=binary_label_flip, federated_params.prop_attack_clients=0.35, federated_params.attack_scheme=constant, federated_params.prop_attack_rounds=1.0]
+      - condition: labelflip_cc_fedcbs
+        label: "Label Flip · CC + Fed-CBS"
+        run_name: "Interdependency · Label Flip · CC + Fed-CBS"
+        method: central_clip
+        overrides: [federated_method=central_clip, federated_method.tau_clip=0.2, client_selector=fedcbs, federated_params.clients_attack_types=binary_label_flip, federated_params.prop_attack_clients=0.35, federated_params.attack_scheme=constant, federated_params.prop_attack_rounds=1.0]
+      - condition: labelflip_fedavg_uniform
+        label: "Label Flip · FedAvg + Uniform"
+        run_name: "Interdependency · Label Flip · FedAvg + Uniform"
+        method: fedavg
+        overrides: [federated_method=fedavg, client_selector=uniform, federated_params.clients_attack_types=binary_label_flip, federated_params.prop_attack_clients=0.35, federated_params.attack_scheme=constant, federated_params.prop_attack_rounds=1.0]
+
+  personalization:
+    order: 20
+    category: PERSONALIZATION
+    category_color: "#7C3AED"
+    title: "Personalization vs Generalization trade-off"
+    description: "Explore how personalized federated methods trade client-specific adaptation against generalization to an unbiased test distribution. The suite uses synthetic 2D data with a shared invariant feature and an alternating client-specific contextual feature, comparing FedAvg, local-only training, Ditto, pFedMe, FedRep and FedAMP."
+    tags: ["6 runs", "Personalization 2D", "Factorized Linear", "Personalization"]
+    comparison_footer: "Default comparison: Client validation accuracy · Unbiased test accuracy"
+    group_prefix: personalization_toy
+    hydra_output_root: outputs/personalization_toy_parallel
+    mlflow_experiment: "FedXplore Toy Examples"
+    default_device: cpu
+    default_seed: 42
+    execution_summary: ["6 parallel runs", "10 clients · 10 per round", "20 communication rounds", "Personalization 2D · Factorized Linear"]
+    preferred_metrics:
+      - {metric: "val/Accuracy_overall", label: "Client validation accuracy"}
+      - {metric: "test/Accuracy_overall", label: "Unbiased test accuracy"}
+    common_overrides:
+      - dataset@train_dataset=personalization_2d
+      - dataset@test_dataset=personalization_2d
+      - model=factorized_linear
+      - model_trainer=image
+      - logger=mlflow
+      - optimizer=sgd
+      - optimizer.lr=0.08
+      - distribution=uniform
+      - training_params.batch_size=64
+      - training_params.num_workers=0
+      - manager.batch_generator.batch_size=5
+      - federated_params.amount_of_clients=10
+      - federated_params.client_subset_size=10
+      - federated_params.communication_rounds=20
+      - federated_params.local_epochs=1
+      - federated_params.client_train_val_prop=0.25
+      - federated_params.print_client_metrics=False
+      - federated_params.server_saving_metrics=[]
+    runs:
+      - {condition: fedavg, label: FedAvg, run_name: "Personalization · FedAvg", method: fedavg, overrides: [federated_method=fedavg]}
+      - {condition: personalized_local, label: "Local only", run_name: "Personalization · Local only", method: ditto, overrides: [federated_method=ditto, federated_method.proximity=0.0]}
+      - {condition: ditto, label: Ditto, run_name: "Personalization · Ditto", method: ditto, overrides: [federated_method=ditto, federated_method.proximity=1.0]}
+      - {condition: pfedme, label: pFedMe, run_name: "Personalization · pFedMe", method: pfedme, overrides: [federated_method=pfedme]}
+      - {condition: fedrep, label: FedRep, run_name: "Personalization · FedRep", method: fedrep, overrides: [federated_method=fedrep]}
+      - {condition: fedamp, label: FedAMP, run_name: "Personalization · FedAMP", method: fedamp, overrides: [federated_method=fedamp]}

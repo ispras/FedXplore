@@ -67,6 +67,22 @@ The `Technical` step provides a CPU / CUDA switch and GPU `device_ids` selection
 
 Override priority is: template overrides, then structured form values, then manual raw overrides.
 
+### Examples
+
+`Examples` is a separate curated workflow, not another configuration form. It
+launches one predefined suite of ordinary UI runs through the normal registry,
+then opens Compare immediately with those runs selected. The initial catalog
+contains the five-run *Client Selection × Byzantine Robustness* suite and the
+six-run *Personalization vs Generalization* suite. Their scientific overrides
+are stored in `ui/examples.yaml` and mirror the canonical toy shell scripts.
+The suites run directly on CPU with local MLflow tracking; choosing a card
+starts the suite immediately.
+
+Each child stores durable `example_batch` metadata in `spec.yaml`, so Dashboard
+and Compare can recover its method/dataset and curated context after refresh.
+Examples always use MLflow and set per-child thread limits without modifying
+the Streamlit server environment.
+
 ### Run page
 
 Each run opens on its own page with:
@@ -100,7 +116,8 @@ full MLflow metric histories. It plots selected metrics in compact Plotly chart
 cards against MLflow step;
 when steps are missing or uninformative it uses timestamps. Completed runs also
 show a final-metrics table, where “final” means the latest recorded history
-point. Use `Refresh` for a run that is still logging.
+point. Analytics refreshes automatically once per second while a run is
+logging, including its status, MLflow ID, and newly available charts.
 
 The comparison view overlays selected metrics for all selected runs in the same
 chart cards, presents their latest metric values side by side, and compares

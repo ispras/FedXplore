@@ -25,7 +25,10 @@ COLORS = {
     "accent_soft": "#F0FDFA",
     "danger": "#B42318",
 }
-CHART_PALETTE = ["#0F766E", "#2563EB", "#D97706", "#7C3AED", "#DC2626"]
+# Keep enough distinct hues for the six-run personalization Example before
+# cycling the palette.  In particular, FedAvg and FedAMP must not both become
+# teal merely because they are the first and sixth displayed series.
+CHART_PALETTE = ["#0F766E", "#2563EB", "#D97706", "#7C3AED", "#DC2626", "#0891B2"]
 
 
 def inject_global_styles() -> None:
@@ -67,6 +70,10 @@ def inject_global_styles() -> None:
             background: #0F766E !important; border-color: #0F766E !important; color: #FFFFFF !important;
         }
         .stButton > button.fx-button-primary:hover:not(:disabled) { background: #115E59 !important; }
+        .stButton > button.fx-button-examples {
+            background:#7C3AED !important; border-color:#7C3AED !important; color:#FFFFFF !important;
+        }
+        .stButton > button.fx-button-examples:hover:not(:disabled) { background:#6D28D9 !important; border-color:#6D28D9 !important; }
         .stButton > button.fx-button-danger {
             color: #B42318 !important; border-color: #FDA29B !important; background: #FFFFFF !important;
         }
@@ -150,6 +157,21 @@ def inject_global_styles() -> None:
             border-color:#0F766E; box-shadow:0 1px 3px rgba(16,24,40,.08);
         }
         [class*="st-key-template-card-selected-"] { border-color:#0F766E; background:#F0FDFA; }
+        [class*="st-key-example-card-"] {
+            background:#FFFFFF; border:1px solid #E4E7EC; border-radius:12px;
+            padding:1.05rem 1.1rem .9rem; min-height:20rem; margin-bottom:.8rem;
+            transition:border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+        }
+        [class*="st-key-example-card-"]:hover { border-color:#C4B5FD; box-shadow:0 2px 6px rgba(16,24,40,.08); }
+        [class*="st-key-example-card-selected-"] { border-color:#7C3AED; background:#FAF5FF; }
+        .fx-example-category { color:#7C3AED; font-size:.72rem; font-weight:750; letter-spacing:.08em; text-transform:uppercase; margin-bottom:.45rem; }
+        .fx-example-title { color:#111827; font-size:1.2rem; font-weight:720; line-height:1.24; margin-bottom:.55rem; }
+        .fx-example-description { color:#475467; font-size:.9rem; line-height:1.5; min-height:6.1rem; }
+        .fx-example-tags { display:flex; flex-wrap:wrap; gap:.3rem; margin:.85rem 0 .8rem; }
+        .fx-example-tag { background:#F5F3FF; border-radius:999px; color:#5B21B6; font-size:.72rem; font-weight:650; padding:.16rem .45rem; }
+        .fx-example-footer { border-top:1px solid #EDE9FE; color:#667085; font-size:.8rem; margin-top:.75rem; padding-top:.7rem; }
+        .fx-example-context { background:#FAF5FF; border:1px solid #DDD6FE; border-radius:10px; padding:.75rem .9rem; margin:.15rem 0 .8rem; }
+        .fx-example-context-title { color:#5B21B6; font-weight:720; margin-bottom:.18rem; }
         [data-testid="stRadio"] [role="radiogroup"] { gap:.55rem; }
 
         .fx-status { display:inline-block; border-radius:999px; padding:.18rem .65rem; font-size:.76rem; font-weight:650; }
@@ -305,7 +327,7 @@ def metric_figure(
 
 
 def render_metric_chart_card(
-    metric: str, frame: pd.DataFrame, *, compare: bool = False
+    metric: str, frame: pd.DataFrame, *, compare: bool = False, display_title: str | None = None
 ) -> None:
     """Render a consistently sized chart card with a concise metric heading."""
 
@@ -313,7 +335,7 @@ def render_metric_chart_card(
     key = f"metric-card-{_safe_key(metric)}-{'compare' if compare else 'single'}"
     with st.container(key=key):
         st.markdown(
-            f"<div class='fx-chart-card'><div class='fx-chart-title'>{metric}</div>"
+            f"<div class='fx-chart-card'><div class='fx-chart-title'>{display_title or metric}</div>"
             f"<div class='fx-chart-subtitle'>X axis: {x_axis}</div></div>",
             unsafe_allow_html=True,
         )

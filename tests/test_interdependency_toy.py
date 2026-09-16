@@ -10,7 +10,7 @@ from src.attack_clients import BinaryLabelFlipClient
 from src.federated_datasets.synthetic_2d_dataset import make_gaussian_2d_dataframe
 from src.model_trainers.image_trainer import ImageTrainer
 from src.utils.model_utils import logistic_regression
-from ui.launcher import load_templates
+from ui.examples import load_examples
 
 
 class InterdependencyToyTests(unittest.TestCase):
@@ -45,16 +45,15 @@ class InterdependencyToyTests(unittest.TestCase):
 
         self.assertEqual(flipped.target.tolist(), [1, 0, 0, 1])
 
-    def test_ui_has_a_template_for_each_selector(self) -> None:
-        templates = load_templates(Path("ui/templates"))
-
+    def test_ui_examples_cover_each_interdependency_selector(self) -> None:
+        examples = load_examples(Path("ui/examples.yaml"))
         selectors = {
-            templates[key].form["client_selector"]
-            for key in (
-                "interdependency_toy",
-                "interdependency_toy_uniform",
-                "interdependency_toy_fedcbs",
+            next(
+                item.split("=", 1)[1]
+                for item in run["overrides"]
+                if item.startswith("client_selector=")
             )
+            for run in examples["interdependency"].data["runs"]
         }
         self.assertEqual(selectors, {"pow", "uniform", "fedcbs"})
 
