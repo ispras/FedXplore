@@ -27,6 +27,7 @@ VOLATILE_SPEC_FIELDS = {
     "rerun_of",
     "rerun_source_name",
 }
+ACTIVE_RUN_STATUSES = {"running", "stopping"}
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,18 @@ class ConfigDiffRow:
     parameter: str
     values: dict[str, str]
     differs: bool
+
+
+def comparison_has_active_runs(
+    selected_run_ids: list[str],
+    runs_by_id: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    """Whether any run in the current comparison still needs live refresh."""
+
+    return any(
+        runs_by_id.get(run_id, {}).get("status") in ACTIVE_RUN_STATUSES
+        for run_id in selected_run_ids
+    )
 
 
 def stable_value(value: Any) -> str:

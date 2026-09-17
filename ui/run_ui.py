@@ -21,7 +21,19 @@ try:
         metric_names as available_metric_names,
         metric_points_frame,
     )
-    from .comparison import build_config_diff, experiment_config_from_spec
+    from .artifacts import (
+        ArtifactDownload,
+        ArtifactKind,
+        ArtifactMetadata,
+        build_artifact_preview,
+        download_artifact,
+        list_run_artifacts,
+    )
+    from .comparison import (
+        build_config_diff,
+        comparison_has_active_runs,
+        experiment_config_from_spec,
+    )
     from .provenance import load_provenance
     from .styles import inject_global_styles, render_final_metrics_table, render_metric_chart_card
     from .create_run import build_experiment_summary, initial_dataset_roles, readable_label, readable_option, validate_experiment_state
@@ -46,7 +58,19 @@ except ImportError:  # pragma: no cover - supports `streamlit run ui/run_ui.py`
         metric_names as available_metric_names,
         metric_points_frame,
     )
-    from comparison import build_config_diff, experiment_config_from_spec
+    from artifacts import (
+        ArtifactDownload,
+        ArtifactKind,
+        ArtifactMetadata,
+        build_artifact_preview,
+        download_artifact,
+        list_run_artifacts,
+    )
+    from comparison import (
+        build_config_diff,
+        comparison_has_active_runs,
+        experiment_config_from_spec,
+    )
     from provenance import load_provenance
     from styles import inject_global_styles, render_final_metrics_table, render_metric_chart_card
     from create_run import build_experiment_summary, initial_dataset_roles, readable_label, readable_option, validate_experiment_state
@@ -2949,6 +2973,189 @@ def format_metric_value(value: float) -> str:
     return f"{value:.8g}"
 
 
+def format_artifact_size(size: int | None) -> str:
+    if size is None:
+        return "size unavailable"
+    units = ["B", "KB", "MB", "GB"]
+    value = float(size)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            return (
+                f"{value:.0f} {unit}"
+                if unit == "B"
+                else f"{value:.1f} {unit}"
+            )
+        value /= 1024
+
+
+def artifact_mime_type(artifact: ArtifactMetadata) -> str:
+    suffix = Path(artifact.path).suffix.lower()
+    return {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".csv": "text/csv",
+        ".md": "text/markdown",
+        ".markdown": "text/markdown",
+        ".yaml": "application/yaml",
+        ".yml": "application/yaml",
+        ".json": "application/json",
+        ".txt": "text/plain",
+    }.get(suffix, "application/octet-stream")
+
+
+def load_artifact_for_viewer(
+    mlflow_run_id: str,
+    tracking_uri: str,
+    artifact: ArtifactMetadata,
+    *,
+    key_prefix: str,
+) -> ArtifactDownload:
+    cache_key = f"{key_prefix}_artifact_download"
+    signature = (mlflow_run_id, artifact.path, artifact.size)
+    cached = st.session_state.get(cache_key)
+    if isinstance(cached, dict) and cached.get("signature") == signature:
+        return ArtifactDownload(artifact, data=cached["data"])
+
+    download = download_artifact(mlflow_run_id, tracking_uri, artifact)
+    if download.has_data:
+        st.session_state[cache_key] = {
+            "signature": signature,
+            "data": download.data,
+        }
+    return download
+
+
+def render_artifact_viewer(
+    mlflow_run_id: str,
+    tracking_uri: str,
+    *,
+    key_prefix: str,
+) -> None:
+    result = list_run_artifacts(mlflow_run_id, tracking_uri)
+    if result.error:
+        st.warning(result.error)
+    if not result.artifacts:
+        if not result.error:
+            st.info("No artifacts have been logged yet.")
+        return
+
+    rows = [
+        {"Artifact": artifact.path, "Size": format_artifact_size(artifact.size)}
+        for artifact in result.artifacts
+    ]
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    artifacts_by_path = {artifact.path: artifact for artifact in result.artifacts}
+    selector_key = f"{key_prefix}_artifact"
+    if st.session_state.get(selector_key, "") not in ["", *artifacts_by_path]:
+        st.session_state[selector_key] = ""
+    selected_path = st.selectbox(
+        "Artifact",
+        options=[""] + list(artifacts_by_path),
+        key=selector_key,
+        format_func=lambda path: (
+            "Select an artifact to preview…"
+            if not path
+            else f"{path} · {format_artifact_size(artifacts_by_path[path].size)}"
+        ),
+    )
+    if not selected_path:
+        st.caption("Artifacts are downloaded only after selection.")
+        return
+
+    artifact = artifacts_by_path[selected_path]
+    download = load_artifact_for_viewer(
+        mlflow_run_id,
+        tracking_uri,
+        artifact,
+        key_prefix=key_prefix,
+    )
+    if download.error or download.data is None:
+        st.warning(download.error or "The selected artifact is unavailable.")
+        return
+
+    st.download_button(
+        "Download selected artifact",
+        data=download.data,
+        file_name=artifact.name,
+        mime=artifact_mime_type(artifact),
+        key=f"{key_prefix}_download_{safe_key(artifact.path)}",
+    )
+    preview = build_artifact_preview(download)
+    if preview.error:
+        st.info(preview.error)
+        return
+    if preview.kind is ArtifactKind.IMAGE:
+        st.image(download.data, caption=artifact.path)
+    elif preview.kind is ArtifactKind.CSV and preview.dataframe is not None:
+        st.dataframe(preview.dataframe, use_container_width=True, hide_index=True)
+    elif preview.kind is ArtifactKind.TEXT and preview.text is not None:
+        language = Path(artifact.path).suffix.lower().lstrip(".") or "text"
+        st.code(preview.text, language=language)
+    else:
+        st.caption("Preview is not available for this file type.")
+    if preview.truncated:
+        st.caption(
+            "Preview truncated; download the artifact to inspect the complete file."
+        )
+
+
+def _render_run_artifacts_view(
+    repo_root: Path,
+    run: dict[str, Any],
+    meta: dict[str, Any],
+    auto_refresh: bool,
+) -> None:
+    fresh_run = next(
+        (
+            item
+            for item in list_runs(repo_root)
+            if item.get("run_id") == run.get("run_id")
+        ),
+        run,
+    )
+    meta = extract_run_meta(repo_root, fresh_run)
+    is_active = meta["status"] in {"running", "stopping"}
+    if is_active != auto_refresh:
+        rerun_app()
+        return
+    mlflow_context = get_run_mlflow_context(repo_root, fresh_run, meta)
+    if not mlflow_context["enabled"]:
+        st.info("No MLflow artifacts were configured for this run.")
+        return
+    if not mlflow_context["run_id"]:
+        if meta["status"] in {"running", "stopping"}:
+            st.info(
+                "MLflow is still starting; artifacts will appear when its run ID "
+                "is available."
+            )
+        else:
+            st.info("MLflow run ID is unavailable for this run. It may be a legacy record.")
+        return
+    render_artifact_viewer(
+        mlflow_context["run_id"],
+        mlflow_context["tracking_uri"],
+        key_prefix=f"ui_run_{safe_key(str(run['run_id']))}",
+    )
+
+
+def render_run_artifacts_view(
+    repo_root: Path,
+    run: dict[str, Any],
+    meta: dict[str, Any],
+) -> None:
+    auto_refresh = meta["status"] in {"running", "stopping"}
+    run_every = "1s" if auto_refresh else None
+    st.fragment(run_every=run_every)(_render_run_artifacts_view)(
+        repo_root,
+        run,
+        meta,
+        auto_refresh,
+    )
+
+
 @st.fragment(run_every="1s")
 def render_analytics_view(repo_root: Path, run: dict[str, Any], meta: dict[str, Any]) -> None:
     """Render a graceful MLflow-backed single-run research summary."""
@@ -3364,8 +3571,11 @@ def _add_compare_run_from_picker() -> None:
     sync_query_params(VIEW_COMPARE, compare_run_ids=st.session_state[COMPARE_RUN_IDS_KEY])
 
 
-@st.fragment(run_every="0.6s")
-def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
+def _render_compare_page(
+    repo_root: Path,
+    runs: list[dict[str, Any]],
+    auto_refresh: bool,
+) -> None:
     # A fragment rerun does not execute ``main`` again, therefore refresh the
     # registry here as well as the MLflow metric histories below.
     runs = list_runs(repo_root)
@@ -3389,6 +3599,9 @@ def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
     ]
     if selected_ids != st.session_state.get(COMPARE_RUN_IDS_KEY, []):
         set_compare_run_ids(selected_ids)
+    if comparison_has_active_runs(selected_ids, run_map) != auto_refresh:
+        rerun_app()
+        return
 
     metas = {
         run_id: extract_run_meta(repo_root, run)
@@ -3590,6 +3803,30 @@ def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
     ):
         st.caption("Some Example runs are still starting; charts show the metric histories currently available.")
 
+    st.markdown("### Run artifacts")
+    artifact_run_key = "ui_compare_artifact_run"
+    if st.session_state.get(artifact_run_key) not in selected_ids:
+        st.session_state[artifact_run_key] = selected_ids[0]
+    artifact_run_id = st.selectbox(
+        "Run",
+        options=selected_ids,
+        key=artifact_run_key,
+        format_func=lambda current_run_id: labels[current_run_id],
+    )
+    artifact_run = run_map[artifact_run_id]
+    artifact_meta = metas[artifact_run_id]
+    artifact_context = get_run_mlflow_context(repo_root, artifact_run, artifact_meta)
+    if not artifact_context["enabled"]:
+        st.info("MLflow was not configured for this run.")
+    elif not artifact_context["run_id"]:
+        st.info("MLflow run ID is not available yet.")
+    else:
+        render_artifact_viewer(
+            artifact_context["run_id"],
+            artifact_context["tracking_uri"],
+            key_prefix=f"ui_compare_{safe_key(artifact_run_id)}",
+        )
+
     st.markdown("### Configuration diff")
     show_identical = st.checkbox(
         "Show unchanged",
@@ -3633,6 +3870,20 @@ def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
         )
     st.markdown("### Git summary")
     st.dataframe(pd.DataFrame(provenance_rows), use_container_width=True, hide_index=True)
+
+
+def render_compare_page(repo_root: Path, runs: list[dict[str, Any]]) -> None:
+    run_map = {str(run["run_id"]): run for run in runs}
+    selected_ids = normalize_compare_run_ids(
+        st.session_state.get(COMPARE_RUN_IDS_KEY, [])
+    )
+    auto_refresh = comparison_has_active_runs(selected_ids, run_map)
+    run_every = "0.6s" if auto_refresh else None
+    st.fragment(run_every=run_every)(_render_compare_page)(
+        repo_root,
+        runs,
+        auto_refresh,
+    )
 
 
 def render_run_header(meta: dict[str, Any], run: dict[str, Any]) -> None:
@@ -3766,6 +4017,7 @@ def render_run_detail_page(repo_root: Path, runs: list[dict[str, Any]], defaults
     tabs = st.tabs(
         [
             "Analytics",
+            "Artifacts",
             "Parameters",
             "Git",
             "Logs",
@@ -3777,16 +4029,18 @@ def render_run_detail_page(repo_root: Path, runs: list[dict[str, Any]], defaults
     with tabs[0]:
         render_analytics_view(repo_root, run, meta)
     with tabs[1]:
-        render_parameters_view(repo_root, run, meta)
+        render_run_artifacts_view(repo_root, run, meta)
     with tabs[2]:
-        render_provenance_view(run)
+        render_parameters_view(repo_root, run, meta)
     with tabs[3]:
-        render_logs_view(run)
+        render_provenance_view(run)
     with tabs[4]:
-        render_journal_view(run)
+        render_logs_view(run)
     with tabs[5]:
-        render_files_view(repo_root, run)
+        render_journal_view(run)
     with tabs[6]:
+        render_files_view(repo_root, run)
+    with tabs[7]:
         render_overview_view(repo_root, run, meta)
 
 

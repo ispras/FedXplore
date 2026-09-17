@@ -89,6 +89,7 @@ Each run opens on its own page with:
 
 - header with run name, status, and control buttons
 - `Analytics` tab (the default)
+- `Artifacts` tab for inspecting files logged by MLflow
 - `Parameters` tab with structured subtabs
 - `Git` tab
 - `Logs`, `Journal`, `Files`, and `Overview` tabs
@@ -124,6 +125,16 @@ chart cards, presents their latest metric values side by side, and compares
 saved Hydra overrides. Only differing configuration values are shown by
 default; enable `Show unchanged` to inspect the full saved configuration. Metrics missing
 from a run display as `N/A`.
+
+The run `Artifacts` tab lists nested MLflow artifacts without downloading
+them. Selecting an artifact downloads only that file and enables a bounded
+preview for images, CSV, Markdown, YAML, JSON, and plain text, together with a
+download button. Compare includes the same viewer in its compact `Run
+artifacts` section, limited to the runs in the current comparison.
+
+FedXplore reads artifact metadata and content through the MLflow client API, so
+local and remote tracking stores use the same workflow. The separate MLflow UI
+is optional and is not required to inspect metrics or artifacts in FedXplore.
 
 MLflow is optional. Runs without an MLflow logger/ID, runs that are still
 starting, unavailable tracking stores, and legacy runs without MLflow metadata
@@ -187,6 +198,11 @@ If `logger=mlflow` is selected, the UI can:
 - reuse that local MLflow UI process for the same store on later clicks
 - disable proxy environment variables for the child process automatically
 - add MLflow-related hosts to `NO_PROXY`
+
+The external MLflow UI is an optional convenience. FedXplore's native
+Analytics and Artifacts views connect to the saved tracking store directly and
+continue to work when that UI is unavailable or is in a different network
+namespace.
 
 This is useful when the local shell session is behind a proxy but the remote MLflow server should be reached directly.
 

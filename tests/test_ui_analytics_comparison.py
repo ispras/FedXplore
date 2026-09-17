@@ -12,6 +12,7 @@ from ui.analytics import (
 )
 from ui.comparison import (
     build_config_diff,
+    comparison_has_active_runs,
     experiment_config_from_spec,
     flatten_config,
 )
@@ -119,6 +120,18 @@ class AnalyticsTests(unittest.TestCase):
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_live_refresh_is_limited_to_selected_active_runs(self) -> None:
+        runs = {
+            "finished": {"status": "finished"},
+            "running": {"status": "running"},
+            "stopping": {"status": "stopping"},
+        }
+
+        self.assertFalse(comparison_has_active_runs(["finished"], runs))
+        self.assertTrue(comparison_has_active_runs(["finished", "running"], runs))
+        self.assertTrue(comparison_has_active_runs(["stopping"], runs))
+        self.assertFalse(comparison_has_active_runs(["missing"], runs))
+
     def test_flatten_config_uses_dotted_paths_and_stable_complex_cells(self) -> None:
         flattened = flatten_config(
             {
