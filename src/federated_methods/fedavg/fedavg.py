@@ -249,15 +249,20 @@ class FedAvg:
         with tempfile.TemporaryDirectory() as tmp:
             plot_path = os.path.join(tmp, "participation_histogram.png")
 
-            build_client_participation_histogram(
+            participation_summary = build_client_participation_histogram(
                 selection_df=df,
                 num_clients=self.amount_of_clients,
                 save_path=plot_path,
+                client_attack_map=self.client_attack_map,
             )
 
             self.logger.save_artifact(
                 open(plot_path, "rb").read(),
                 "client_selection/participation_histogram.png",
+            )
+            self.logger.save_artifact(
+                participation_summary.to_csv(index=False),
+                "client_selection/participation_summary.csv",
             )
 
         # Generate conflunce report

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import OmegaConf
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
 from utils.utils import (
     get_run_command,
@@ -44,19 +45,54 @@ def redirect_stdout_to_log(run_dir):
     return redirect_file
 
 
-def build_client_participation_histogram(selection_df, num_clients, save_path):
+def build_client_participation_histogram(
+    selection_df,
+    num_clients,
+    save_path,
+    client_attack_map=None,
+):
     all_clients = np.concatenate(selection_df["clients"].to_numpy())
-
     freq = np.bincount(all_clients, minlength=num_clients)
+    client_ids = np.arange(num_clients)
+    attack_types = [
+        (client_attack_map or {}).get(client_id, "no_attack")
+        for client_id in client_ids
+    ]
+    is_attacker = [attack_type != "no_attack" for attack_type in attack_types]
+
+    summary = pd.DataFrame(
+        {
+            "client_id": client_ids,
+            "rounds_selected": freq,
+            "is_attacker": is_attacker,
+            "attack_type": attack_types,
+        }
+    )
+
+    benign_color = "tab:blue"
+    attacker_color = "tab:red"
+    colors = [
+        attacker_color if attacked else benign_color
+        for attacked in is_attacker
+    ]
 
     plt.figure(figsize=(10, 4))
-    plt.bar(np.arange(num_clients), freq)
+    plt.bar(client_ids, freq, color=colors)
+    plt.xticks(client_ids)
     plt.xlabel("Client")
     plt.ylabel("Rounds selected")
     plt.title("Client participation frequency")
+    if any(is_attacker):
+        plt.legend(
+            handles=[
+                Patch(color=benign_color, label="Benign clients"),
+                Patch(color=attacker_color, label="Attacking clients"),
+            ]
+        )
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
+    return summary
 
 
 class BaseLogger:

@@ -9,7 +9,11 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.utils.logging_utils import BaseLogger, MLFlowLogger
+from src.utils.logging_utils import (
+    BaseLogger,
+    MLFlowLogger,
+    build_client_participation_histogram,
+)
 
 
 class MLFlowLoggingTests(unittest.TestCase):
@@ -88,6 +92,66 @@ class MLFlowLoggingTests(unittest.TestCase):
                 "val/f1-score_overall": 0.6,
             },
             step=3,
+        )
+
+
+class ClientParticipationHistogramTests(unittest.TestCase):
+    def test_clean_client_map_produces_single_color_and_clean_summary(self):
+        selections = pd.DataFrame(
+            {"round": [0, 1], "clients": [[0, 2], [0, 1]]}
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "participation_histogram.png"
+            with patch("src.utils.logging_utils.plt.bar") as bar:
+                summary = build_client_participation_histogram(
+                    selections,
+                    num_clients=3,
+                    save_path=output_path,
+                    client_attack_map={0: "no_attack", 1: "no_attack", 2: "no_attack"},
+                )
+
+        self.assertEqual(bar.call_args.kwargs["color"], ["tab:blue"] * 3)
+        pd.testing.assert_frame_equal(
+            summary,
+            pd.DataFrame(
+                {
+                    "client_id": [0, 1, 2],
+                    "rounds_selected": [2, 1, 1],
+                    "is_attacker": [False, False, False],
+                    "attack_type": ["no_attack", "no_attack", "no_attack"],
+                }
+            ),
+        )
+
+    def test_attacked_client_map_colors_attackers_and_records_attack_types(self):
+        selections = pd.DataFrame(
+            {"round": [0, 1], "clients": [[0, 1], [1, 2]]}
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "participation_histogram.png"
+            with (
+                patch("src.utils.logging_utils.plt.bar") as bar,
+                patch("src.utils.logging_utils.plt.legend") as legend,
+            ):
+                summary = build_client_participation_histogram(
+                    selections,
+                    num_clients=3,
+                    save_path=output_path,
+                    client_attack_map={0: "no_attack", 1: "label_flip", 2: "ipm"},
+                )
+
+        self.assertEqual(
+            bar.call_args.kwargs["color"],
+            ["tab:blue", "tab:red", "tab:red"],
+        )
+        legend.assert_called_once()
+        self.assertEqual(summary["rounds_selected"].tolist(), [1, 2, 1])
+        self.assertEqual(summary["is_attacker"].tolist(), [False, True, True])
+        self.assertEqual(
+            summary["attack_type"].tolist(),
+            ["no_attack", "label_flip", "ipm"],
         )
 
 
