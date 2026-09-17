@@ -26,6 +26,11 @@ class ExampleCatalogTests(unittest.TestCase):
     def test_catalog_contains_exactly_the_two_curated_suites(self) -> None:
         self.assertEqual(set(self.examples), {"interdependency", "personalization"})
 
+    def test_every_example_has_an_existing_poster(self) -> None:
+        for example in self.examples.values():
+            poster_path = EXAMPLES_PATH.parent / example.data["poster"]
+            self.assertTrue(poster_path.is_file(), poster_path)
+
     def test_interdependency_plan_matches_the_canonical_script(self) -> None:
         example = self.examples["interdependency"]
         plan = build_example_launch_plan(

@@ -4,6 +4,7 @@ examples:
     category: INTERDEPENDENCIES
     category_color: "#D97706"
     title: "Client Selection × Byzantine Robustness"
+    poster: assets/examples/cs_byz.png
     description: "Explore how client-selection policy changes robust federated aggregation under adversarial clients. This suite uses a lightweight synthetic 2D classification problem and a deterministic binary label-flip attack, comparing Centered Clipping under Uniform, Power-of-Choice and Fed-CBS selection with clean and FedAvg reference runs."
     tags: ["5 runs", "Synthetic 2D", "Logistic Regression", "Robustness", "Client Selection"]
     comparison_footer: "Default comparison: Test loss · Test accuracy"
@@ -66,6 +67,7 @@ examples:
     category: PERSONALIZATION
     category_color: "#7C3AED"
     title: "Personalization vs Generalization trade-off"
+    poster: assets/examples/personalization.png
     description: "Explore how personalized federated methods trade client-specific adaptation against generalization to an unbiased test distribution. The suite uses synthetic 2D data with a shared invariant feature and an alternating client-specific contextual feature, comparing FedAvg, local-only training, Ditto, pFedMe, FedRep and FedAMP."
     tags: ["6 runs", "Personalization 2D", "Factorized Linear", "Personalization"]
     comparison_footer: "Default comparison: Client validation accuracy · Unbiased test accuracy"

@@ -51,7 +51,7 @@ def load_examples(path: Path) -> dict[str, ExampleDefinition]:
     if not isinstance(entries, dict):
         raise ValueError("examples.yaml must contain an 'examples' mapping")
     definitions: dict[str, ExampleDefinition] = {}
-    required = {"title", "group_prefix", "runs", "common_overrides", "preferred_metrics"}
+    required = {"title", "poster", "group_prefix", "runs", "common_overrides", "preferred_metrics"}
     for key, value in entries.items():
         if not isinstance(value, dict) or not required <= set(value):
             raise ValueError(f"Example {key!r} is incomplete")

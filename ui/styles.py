@@ -164,8 +164,13 @@ def inject_global_styles() -> None:
         }
         [class*="st-key-example-card-"]:hover { border-color:#C4B5FD; box-shadow:0 2px 6px rgba(16,24,40,.08); }
         [class*="st-key-example-card-selected-"] { border-color:#7C3AED; background:#FAF5FF; }
+        .stApp:has(.fx-examples-page-marker) [data-testid="stMainBlockContainer"] { max-width:1900px; }
+        [data-testid="stElementContainer"]:has(.fx-examples-page-marker) { display:none !important; }
         .fx-example-category { color:#7C3AED; font-size:.72rem; font-weight:750; letter-spacing:.08em; text-transform:uppercase; margin-bottom:.45rem; }
-        .fx-example-title { color:#111827; font-size:1.2rem; font-weight:720; line-height:1.24; margin-bottom:.55rem; }
+        .fx-example-title { color:#111827; font-size:1.2rem; font-weight:720; line-height:1.24; min-height:3rem; margin-bottom:.55rem; }
+        [class*="st-key-example-card-"] [data-testid="stImage"] img {
+            width:100%; aspect-ratio:1672 / 941; object-fit:cover; border-radius:8px;
+        }
         .fx-example-description { color:#475467; font-size:.9rem; line-height:1.5; min-height:6.1rem; }
         .fx-example-tags { display:flex; flex-wrap:wrap; gap:.3rem; margin:.85rem 0 .8rem; }
         .fx-example-tag { background:#F5F3FF; border-radius:999px; color:#5B21B6; font-size:.72rem; font-weight:650; padding:.16rem .45rem; }

@@ -1372,6 +1372,12 @@ def render_example_card(example: ExampleDefinition, *, selected: bool) -> bool:
             (
                 f"<div class='fx-example-category' style='color:{color}'>{escape(str(data.get('category', 'EXAMPLE')))}</div>"
                 f"<div class='fx-example-title'>{escape(example.title)}</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+        st.image(Path(__file__).parent / str(data["poster"]), use_container_width=True)
+        st.markdown(
+            (
                 f"<div class='fx-example-description'>{escape(str(data.get('description', '')))}</div>"
                 f"<div class='fx-example-tags'>{tags}</div>"
                 f"<div class='fx-example-footer'>{escape(str(data.get('comparison_footer', '')))}</div>"
@@ -1443,6 +1449,7 @@ def launch_example(repo_root: Path, example: ExampleDefinition) -> None:
 
 
 def render_examples_page(repo_root: Path) -> None:
+    st.markdown("<span class='fx-examples-page-marker'></span>", unsafe_allow_html=True)
     examples = load_examples(examples_catalog_path())
     selected_key = str(st.session_state.get(EXAMPLE_SELECTED_KEY, "") or "")
     if selected_key not in examples:
