@@ -1,83 +1,141 @@
-# FedXplore - Framework for Federated Learning Attacks, Defences, Client Selection and Personalization
+# FedXplore
 
-## Table of contents
-0. [Quickstart](#-quickstart-guide) -- Follow the instructions and get the result!
-1. [Attacks and Defences](docs/attacks_and_defences.md) -- Deep dive into Byzantine-Robust Federated Learning
-2. [Personalization](docs/personalization.md) -- Deep dive into Personalized Federated Learning
-3. [Client Selection](docs/client_selection.md) -- Deep dive into Client Selection Strategies
-4. [Byzantine Robustness and Client Selection](docs/interaction.md) -- Feel the flexibility of framework in modular interaction
-5. [C4 notation](docs/C4.md) -- Context Container Component Code scheme.
-6. [Federated Method Explaining](docs/method.md) -- Get the basis and write your own method
-7. [Attacks](docs/attacks.md) -- Get the basis and write custom attack
+<p align="center">
+  <strong>An interactive research workbench for federated learning</strong>
+</p>
 
-## 🚀 Quickstart Guide
-### 📋 Prerequisites
-```bash
-python -m venv venv
-source venv/bin/activate
-pip install -e .
-```
+<p align="center">
+  <img src="docs/assets/readme/fedxplore-overview.png" alt="FedXplore overview" width="850">
+</p>
 
-### ⚙️ Experiment Setups
+FedXplore helps researchers build, run, and compare federated learning
+experiments from a web interface. Combine federated methods, client selection,
+data distributions, Byzantine attacks and defences, and personalization in one
+workflow, then inspect metrics, artifacts, and configuration differences.
 
-See allowed optionalization in [config.md](docs/config.md)
+| Build | Run | Compare |
+| :---: | :---: | :---: |
+| Compose an experiment from reusable research components | Start local training and follow its status | Explore live metrics, artifacts, parameters, and provenance |
 
-#### 🔄 [Federated Averaging](https://arxiv.org/pdf/1602.05629) on [CIFAR-10](https://www.cs.toronto.edu/~kriz/cifar.html)
-```bash
-python src/train.py \
-  training_params.batch_size=32 \
-  federated_params.print_client_metrics=False \
-  training_params.device_ids=[0] \
-  > fedavg_cifar.txt
-```
+[Quick start](#quick-start) · [Create and inspect a run](#create-and-inspect-a-run) ·
+[Examples](#examples) · [Documentation](#technical-overview-and-documentation)
 
-At the first run, downloading CIFAR-10 takes some time.
+## Technical overview and documentation
 
-`device_ids` controls the GPU number (if there are several GPUs on the machine). You can specify multiple ids, then the training will be evenly distributed across the specified devices.
+The UI is an interactive layer over the existing Hydra configuration and
+`src/train.py` execution path. The framework separates the federated method,
+server, clients, manager, dataset, and trainer so that research components can
+be changed independently and studied together.
 
-Additionally, `manager.batch_size` client processes will be created. To forcefully terminate the training, kill any of the processes.
+<p align="center">
+  <img src="docs/c4_plots/fl_system.svg" alt="FedXplore federated learning system" width="850">
+</p>
 
-#### 🌪️ Dirichlet Partition with $\alpha=0.1$ (strong heterogeneity) and [FedCor](https://arxiv.org/abs/2103.13822) client strategy
+**Documentation:** [C4 architecture](docs/C4.md) ·
+[Configuration](docs/config.md) · [Federated methods](docs/method.md) ·
+[Attacks and defences](docs/attacks_and_defences.md) ·
+[Client selection](docs/client_selection.md) ·
+[Personalization](docs/personalization.md) · [UI technical reference](docs/ui.md)
 
-```bash
-python src/train.py \
-  training_params.batch_size=32 \
-  federated_params.print_client_metrics=False \
-  distribution.alpha=0.1 \
-  federated_params.amount_of_clients=100 \
-  client_selector=fedcor \
-  > fedavg_fedcor_cifar10_dirichlet_alpha0.1.txt
-```
+## Quick start
 
-#### 🦠 [FLTrust](https://arxiv.org/abs/2012.13995) with Label Flipping Attack on [PTB-XL](https://physionet.org/content/ptb-xl/1.0.3/) dataset
+Requires Python 3.8 or newer. GPU execution is optional; the curated examples
+run on CPU.
 
 ```bash
-python src/train.py \
-  federated_method=fltrust \
-  dataset@train_dataset=ptbxl \
-  dataset@test_dataset=ptbxl \
-  dataset@trust_dataset=ptbxl \
-  model_trainer=ptbxl \
-  distribution=uniform \
-  model=resnet1d18 \
-  training_params.batch_size=32 \
-  federated_params.print_client_metrics=False \
-  federated_params.clients_attack_types=label_flip \
-  federated_params.prop_attack_clients=0.5 \
-  federated_params.attack_scheme=constant \
-  federated_params.prop_attack_rounds=1.0 \
-  > fltrust_ptbxl_label_flip_half_byzantines.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+python -m pip install -r ui/requirements-ui.txt
+python -m streamlit run ui/run_ui.py
 ```
 
-At the first run, downloading PTB-XL takes some time.
+Open the local URL printed by Streamlit.
 
-#### 🧑‍🤝‍🧑 Personalized [FedAMP](https://arxiv.org/abs/2007.03797) on [CIFAR-10](https://www.cs.toronto.edu/~kriz/cifar.html)
+## Create and inspect a run
 
-```bash
-python src/train.py \
-  federated_method=fedamp \
-  federated_params.amount_of_clients=10 \
-  federated_params.client_subset_size=10 \
-  training_params.batch_size=32 \
-  > fedamp_cifar10.txt
-```
+Open **Create Run**, choose the method, client selection, dataset, attack, and
+training setup, then review the resolved configuration and launch command.
+After launch, the run appears on the **Dashboard** and its metrics update while
+training is in progress.
+
+<p align="center">
+  <a href="docs/assets/readme/create-run-review.png">
+    <img src="docs/assets/readme/create-run-review.png" alt="Review and launch a FedXplore run" width="49.5%">
+  </a>
+  <a href="docs/assets/readme/run-analytics.png">
+    <img src="docs/assets/readme/run-analytics.png" alt="Inspect FedXplore run metrics" width="48.5%">
+  </a>
+</p>
+
+Review the resolved experiment, configuration checks, and exact launch command
+before starting training, then follow final values and metric histories. Select
+either image to open it at full size.
+
+Select multiple runs on the Dashboard to compare metric histories and
+configuration differences. Runs created through **Create Run** can be cloned
+for editing, and saved runs can be started again from their overrides.
+
+## Examples
+
+The **Examples** page launches compact, predefined suites on CPU and opens the
+comparison automatically. They provide a fast way to explore interactions
+between federated learning components.
+
+### Client Selection × Byzantine Robustness
+
+How does the client selection policy affect robust aggregation when malicious
+clients flip their labels? This suite compares five controlled conditions with
+Centered Clipping, FedAvg, Uniform, Power-of-Choice, and Fed-CBS.
+
+<p align="center">
+  <a href="ui/assets/examples/cs_byz.png">
+    <img src="ui/assets/examples/cs_byz.png" alt="Client selection and Byzantine robustness" width="1000">
+  </a>
+</p>
+
+<p align="center"><em>Research question: the interaction between client selection and robust aggregation.</em></p>
+
+<p align="center">
+  <a href="docs/assets/readme/byzantine-comparison.png">
+    <img src="docs/assets/readme/byzantine-comparison.png" alt="Byzantine robustness comparison in FedXplore" width="1000">
+  </a>
+</p>
+
+<p align="center"><em>Live comparison of the five experiment conditions.</em></p>
+
+In this synthetic example, changing only the selector changes how often
+malicious clients participate and produces sharply different learning curves.
+
+### Personalization vs Generalization
+
+How does adaptation to each client's data affect performance on a shared,
+balanced test distribution? This suite compares FedAvg, local training, Ditto,
+pFedMe, FedRep, and FedAMP on the same synthetic task.
+
+<p align="center">
+  <a href="ui/assets/examples/personalization.png">
+    <img src="ui/assets/examples/personalization.png" alt="Personalization and generalization trade-off" width="1000">
+  </a>
+</p>
+
+<p align="center"><em>Research question: the trade-off between local adaptation and generalization.</em></p>
+
+<p align="center">
+  <a href="docs/assets/readme/personalization-comparison.png">
+    <img src="docs/assets/readme/personalization-comparison.png" alt="Personalization comparison in FedXplore" width="1000">
+  </a>
+</p>
+
+<p align="center"><em>Live comparison of local validation and balanced test accuracy.</em></p>
+
+The paired charts make the trade-off visible: a method can fit local client
+distributions well while performing worse on the balanced population test.
+
+The exact suite configurations are available in
+[`ui/examples.yaml`](ui/examples.yaml).
+
+## License
+
+See [LICENSE](LICENSE).
